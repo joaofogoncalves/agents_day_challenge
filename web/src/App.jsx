@@ -76,16 +76,20 @@ export default function App() {
     let prev;
     setIdeas((cur) => {
       prev = cur;
-      return cur.map((i) =>
-        i.uid === uid
-          ? { ...i, voted_by_me: !i.voted_by_me, votes: (i.votes || 0) + (i.voted_by_me ? -1 : 1) }
-          : i,
-      );
+      return cur.map((i) => {
+        if (i.uid !== uid) return i;
+        const newVotes = (i.votes || 0) + (i.voted_by_me ? -1 : 1);
+        return { ...i, voted_by_me: !i.voted_by_me, votes: newVotes, score_votes: Math.min(newVotes / 5, 1) };
+      });
     });
     try {
       const res = await voteIdea(uid);
       setIdeas((cur) =>
-        cur.map((i) => (i.uid === uid ? { ...i, votes: res.votes, voted_by_me: res.voted } : i)),
+        cur.map((i) =>
+          i.uid === uid
+            ? { ...i, votes: res.votes, voted_by_me: res.voted, score_votes: Math.min(res.votes / 5, 1) }
+            : i,
+        ),
       );
     } catch (e) {
       console.error('vote failed', e);
@@ -516,11 +520,10 @@ function Card({ idea, delay, onOpen, onVote, isAuthed }) {
 
   const [breakdownOpen, setBreakdownOpen] = useState(false);
 
-  // The backend's composite() floors team/resource at 0 but keeps the market
-  // placeholder at 0.5, so an unvalidated idea always lands at score=1. Don't
-  // surface that as a real score — show "—" until the agent has actually
-  // assigned team/resource fits.
-  const unvalidated = idea.score_team == null && idea.score_resource == null;
+  // Show "—" only when there is genuinely no signal: not yet validated AND no votes.
+  // With votes replacing the old market placeholder, votes ARE a real signal —
+  // an unvalidated idea with 3 votes deserves a partial score, not a dash.
+  const unvalidated = idea.score_team == null && idea.score_resource == null && !idea.votes;
   const scoreLabel = unvalidated ? '—' : idea.score;
 
   const handleVote = (e) => {
@@ -632,7 +635,7 @@ function ScoreBar({ label, weight, value }) {
 function Editor({ idea, canEdit, onClose, onSave }) {
   const [name, setName] = useState(idea.name);
   const [long, setLong] = useState(idea.long);
-  const unvalidated = idea.score_team == null && idea.score_resource == null;
+  const unvalidated = idea.score_team == null && idea.score_resource == null && !idea.votes;
 
   useEffect(() => {
     const onKey = (e) => {
