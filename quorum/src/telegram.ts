@@ -477,9 +477,10 @@ function isAddressed(ctx: Context): boolean {
   const replyTo = ctx.message?.reply_to_message?.from;
   if (me?.id && replyTo?.id === me.id) return true;
 
-  // Tolerant match — the canonical handle is @quorum_bot, but an older deploy
-  // used @quorom_bot. Accept either spelling so legacy mentions keep working.
-  if (/@quor[uo]m_bot\b/i.test(text)) return true;
+  // Tolerant match — canonical is @quorum_bot, but past/parallel deploys have
+  // used @quorom_bot and @quorum_app_bot. Match any @quor…_bot spelling so a
+  // BotFather rename or a sibling test bot doesn't silently fall through.
+  if (/@quor\w*bot\b/i.test(text)) return true;
 
   // text_mention entities (used for users without @-username, e.g. by ID)
   const entities = ctx.message?.entities ?? [];
@@ -522,9 +523,13 @@ async function dispatchDecision(
   const { plan, confidence } = decision;
   switch (plan.kind) {
     case "noop":
-      // The bot was addressed but the message didn't have a clear ask.
-      // Reply something minimal so the user doesn't think the bot is dead.
-      await ctx.reply("got it — noted. (try /help for commands)");
+      // The bot was addressed but the router couldn't pick a tool. Better to
+      // admit it explicitly than to leave the chat wondering if the bot is
+      // dead — silence here was the original bug report.
+      await ctx.reply(
+        "I'm not sure what you'd like me to do with that. Try `/help` for what I can do, or rephrase — e.g. \"add idea: …\", \"what's our top idea?\", \"validate #3\".",
+        { parse_mode: "Markdown" },
+      );
       return;
 
     case "add_idea": {
