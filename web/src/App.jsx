@@ -120,7 +120,11 @@ export default function App() {
 
   const isAuthed = !!me?.login;
   const canEdit = !!me?.can_edit;
-  const canVote = !!me?.can_vote;
+  // Spec: any signed-in GitHub user can vote. The WS hello me only carries
+  // can_edit; can_vote lives on the REST /api/me payload. Don't gate on
+  // can_vote — it goes undefined once the hook's me wins, and the button
+  // becomes a no-op.
+  const canVote = isAuthed;
 
   // Editor-only: wipe both the singular `constraint` and the JSON-array
   // `constraints` rows. Optimistic — drop them locally, restore on failure.
