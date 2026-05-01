@@ -16,22 +16,11 @@ import * as fmt from "./format";
 import { complete, parseJson } from "./llm";
 
 export function createBot(agent: QuorumAgent, token: string): Bot {
-  const bot = new Bot(token, {
-    botInfo: {
-      id: 0,
-      is_bot: true,
-      first_name: "Quorum",
-      username: "quorum_bot",
-      can_join_groups: true,
-      can_read_all_group_messages: true,
-      supports_inline_queries: false,
-      can_connect_to_business: false,
-      has_main_web_app: false,
-      can_manage_bots: false,
-      has_topics_enabled: false,
-      allows_users_to_create_topics: false,
-    },
-  });
+  // Let grammy fetch botInfo via getMe() lazily on first request.
+  // Hardcoding it caused command-matching bugs because @BotFather registered
+  // "Quorom_bot" (typo) while we'd typed "quorum_bot". One extra round-trip
+  // per DO cold start is a fair price for correctness.
+  const bot = new Bot(token);
 
   bot.command("start", async (ctx) => {
     const base = agent.bindings.PUBLIC_BASE_URL ?? "https://quorum.joao-f-o-goncalves.workers.dev";
