@@ -1,6 +1,6 @@
-# HackBuddy — Agents Day Plan
+# Quorum — Agents Day Plan
 
-A Telegram-native agent that helps teams converge chaotic group brainstorms into a shippable plan. Three phases (Ideation / Validation / Planning), backflow between them, deadline-aware, grounded in real team skills.
+A chat-native agent that helps teams figure out *what* to build — the new bottleneck now that AI has commoditized execution. Lives in Telegram (Slack adapter abstracted but unshipped). Three phases (Ideation / Validation / Planning) with backflow between them, deadline-aware, grounded in real team skills.
 
 ## Sponsor target
 
@@ -10,7 +10,19 @@ Single-target pitch. Every architectural primitive must defend its place on the 
 
 ## Pitch
 
-> HackBuddy converges chaotic group brainstorms into a shippable plan, and remembers everything when constraints shift. Built end-to-end on the Cloudflare Agents SDK — one Agent class per chat, with durable SQLite state, Workers AI scoring, Cron-driven deadline nudges. The `/constraint` command is the demo: watch parked ideas reanimate live as the world changes around them.
+> AI made software cheap to build. The bottleneck moved upstream — knowing *what* to build is the hard part now. A 3-person team burns its hackathon day on a brainstorm doc instead of shipping. A 15-person product team picks the third-best feature for the quarter because politics. A 1,000-person org builds the wrong thing for two years. The cost of the wrong choice stayed the same; the cost of execution collapsed. Pick wrong, you waste *more* than before.
+>
+> **Quorum** lives in your team's chat and helps you converge on the right thing to build. Three phases — Ideation, Validation, Planning — with backflow: when constraints change, killed ideas come back for a second look automatically. Validates against your team's real skills (parsed from GitHub) and current resources. Surfaces a defensible top-3 with audit trails.
+>
+> Built end-to-end on Cloudflare Agents SDK — every primitive earns its place.
+
+### One-liner (memorize)
+
+> "AI made software cheap. Picking what to build is the new bottleneck — and getting it wrong now costs more than ever, because everything else got faster. Quorum is the agent that helps your team find the thing actually worth building."
+
+### Demo line
+
+> "Add `/constraint we lost a backend dev`. Watch parked ideas reanimate, the rank reshuffle, the audit trail update. That's the moment."
 
 ## Stack (locked)
 
@@ -34,8 +46,8 @@ Critical gotchas:
 ## Scaffolding (H+1)
 
 ```bash
-npm create cloudflare@latest hackbuddy -- --template cloudflare/agents-starter
-cd hackbuddy
+npm create cloudflare@latest quorum -- --template cloudflare/agents-starter
+cd quorum
 npx wrangler secret put ANTHROPIC_API_KEY
 npx wrangler secret put TELEGRAM_BOT_TOKEN
 npx wrangler dev
@@ -51,7 +63,7 @@ npx mcp-remote https://bindings.mcp.cloudflare.com/mcp
 
 ### João — Architect & lead
 - Project scaffolding, `wrangler.jsonc`, secrets, MCP setup
-- `HackBuddyAgent` class + SQL schema design
+- `QuorumAgent` class + SQL schema design
 - Telegram webhook wiring (`setWebhook`, signature check, grammY routing)
 - Claude API fallback for scoring
 - Backflow logic (the `/constraint` demo moment)
@@ -80,7 +92,7 @@ npx mcp-remote https://bindings.mcp.cloudflare.com/mcp
 |--------|-----------|
 | H+0 (8:30)  | Check-in, scaffold project, MCPs connected, secrets set, branches assigned |
 | H+1 (9:30)  | `wrangler dev` running. Telegram webhook live. Bot echoes in our group |
-| H+2 (10:30) | `HackBuddyAgent` with SQL schema. `/idea`, `/ideas`, `/vote` end-to-end |
+| H+2 (10:30) | `QuorumAgent` with SQL schema. `/idea`, `/ideas`, `/vote` end-to-end |
 | H+3 (11:30) | `/event <url>` → context table populated. `/ideas` shows fit score |
 | H+4 (12:30) | Lunch + dogfood with chat-derived ideas |
 | H+5 (14:30) | `/me` + `/gh` skills pipeline. `/team` aggregate. `/forget` |
@@ -98,7 +110,7 @@ npx mcp-remote https://bindings.mcp.cloudflare.com/mcp
 4. `/gh` automation → `/me` only.
 5. **Never cut:** `/idea /vote /ideas /constraint /why /me /team`. Backflow + team-aware scoring is the demo.
 
-## Schema (`HackBuddyAgent` SQLite)
+## Schema (`QuorumAgent` SQLite)
 
 ```sql
 CREATE TABLE ideas (
@@ -164,10 +176,10 @@ CREATE TABLE events (
 1. Show our group with the ideas seeded during the day.
 2. `/ideas` — scored list across phases.
 3. `/constraint we lost a backend dev`. Bot replies live: "3 ideas reanimated to ideating, 2 demoted from validating. Reason: backend depth dropped." **Money moment.**
-4. `/rank` puts HackBuddy at the top under current constraints. `/plan` on it.
+4. `/rank` puts Quorum at the top under current constraints. `/plan` on it.
 5. `/why` shows the audit trail of one idea bouncing between phases.
 6. (If web view shipped) refresh `/g/<token>` page, board reflows live.
-7. Close: "Same agent, same code. Telegram for hackathons, Slack for product teams."
+7. Close: "Same agent, same code. Telegram for hackathons, Slack for product teams. AI didn't replace the team — it made the team's taste matter more."
 
 ## Risks
 

@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a hackathon repository (Cloudflare-sponsored Agents Day, May 1 2026). At this checkpoint only `PLAN.md` exists — the project has not been scaffolded yet. **Read `PLAN.md` first**: it is the source of truth for goals, stack decisions, team responsibilities, the 9-hour timeline, and the cuts-in-order list. This file is a thin orientation layer on top of it.
 
-## Project: HackBuddy
+## Project: Quorum
 
-A Telegram-native agent that helps teams converge chaotic group brainstorms into a shippable plan. Three phases (Ideation / Validation / Planning) with **backflow** between them — parked or killed ideas re-validate when the team's constraints change. Grounded in real team skills via GitHub or self-declared `/me` text.
+A chat-native agent for the new bottleneck in software: knowing *what* to build. AI has commoditized execution; the cost of picking the wrong thing now exceeds the cost of building it. Quorum lives in a team's group chat (Telegram now, Slack-adapter-ready) and converges them onto the right thing to build. Three phases (Ideation / Validation / Planning) with **backflow** between them — parked or killed ideas re-validate when the team's constraints change. Grounded in real team skills via GitHub or self-declared `/me` text.
 
 Sponsor: **Cloudflare** — "Build a Personal Agent that Automates a Meaningful Task." Single-target. Every architectural primitive must defend its place on the Cloudflare platform.
 
@@ -25,8 +25,8 @@ Explicitly dropped from earlier drafts: D1 (Agent's SQLite covers per-chat needs
 ## Scaffolding (run once)
 
 ```bash
-npm create cloudflare@latest hackbuddy -- --template cloudflare/agents-starter
-cd hackbuddy
+npm create cloudflare@latest quorum -- --template cloudflare/agents-starter
+cd quorum
 npx wrangler secret put ANTHROPIC_API_KEY
 npx wrangler secret put TELEGRAM_BOT_TOKEN
 npx wrangler dev
@@ -38,13 +38,13 @@ Once scaffolded, the common commands will be `npx wrangler dev`, `npx wrangler d
 
 ## Architecture
 
-Per-chat state is owned by a single `HackBuddyAgent` Durable Object instance, keyed by Telegram chat ID. The Agent class provides:
+Per-chat state is owned by a single `QuorumAgent` Durable Object instance, keyed by Telegram chat ID. The Agent class provides:
 - `this.sql` — embedded SQLite. Use this instead of D1 for per-chat data.
 - `this.state` / `setState()` — JSON state, durable across hibernation.
 - `schedule()` / `scheduleEvery()` — for deadline nudges and async work.
 - `onRequest(req)` — HTTP entry, where the Telegram webhook lands.
 
-Flow: Telegram webhook → Worker → `routeAgentRequest` → `HackBuddyAgent` instance for this chat → grammY parses the update in `onRequest` → command handler reads/writes SQL → reply sent via Bot API.
+Flow: Telegram webhook → Worker → `routeAgentRequest` → `QuorumAgent` instance for this chat → grammY parses the update in `onRequest` → command handler reads/writes SQL → reply sent via Bot API.
 
 `/constraint` is the demo centerpiece: it re-runs validation across all `parked` and `killed` ideas, surfacing reanimation candidates. The full SQL schema (`ideas`, `members`, `context`, `events`) lives in `PLAN.md`.
 
