@@ -381,7 +381,23 @@ export class QuorumAgent extends Agent<Env> {
       touched = true;
     }
     if (touched) {
-      this.appendEvent(id, "idea_edited", { editor, patch });
+      const by: ActorRef = (editor && editor !== "unknown")
+        ? { kind: "user", login: editor, avatar: "" }
+        : { kind: "agent" };
+      this.appendEvent(id, "idea_edited", { editor, patch, by });
+      const uid = `qrm_${String(id).padStart(6, "0")}`;
+      const eventRow = (this.sql`SELECT id, created_at FROM events WHERE id = (SELECT MAX(id) FROM events)`)[0] as { id: number; created_at: number } | undefined;
+      if (eventRow) {
+        const activity = this.activityRowFromEvent({
+          event_id: eventRow.id,
+          event_kind: "idea_edited",
+          target_uid: uid,
+          by,
+          ts: eventRow.created_at,
+          payload: { fields: Object.keys(patch) },
+        });
+        this.broadcastWire({ kind: "idea_edited", uid, patch, activity });
+      }
     }
     const after = this.sql<Idea>`SELECT * FROM ideas WHERE id = ${id}`;
     return this.toBoardIdea(after[0]!, this.hasVote(id, voterKey));
