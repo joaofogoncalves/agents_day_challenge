@@ -25,7 +25,7 @@ This file is a thin orientation layer on top of the above. Don't restate them he
 |---|---|---|
 | Board UI | `https://quorum.joao-f-o-goncalves.workers.dev/?chat=<id>` | Reads `?chat=` from URL → `/api/board?chat=...`. Without `?chat=`, falls back to `DEFAULT_BOARD_CHAT` var. |
 | Telegram webhook | `https://quorum.joao-f-o-goncalves.workers.dev/webhook` | Signature-checked via `TELEGRAM_WEBHOOK_SECRET` |
-| Board JSON | `https://quorum.joao-f-o-goncalves.workers.dev/api/board[?chat=<id>]` | CORS pinned to `PUBLIC_BASE_URL` |
+| Board JSON | `https://quorum.joao-f-o-goncalves.workers.dev/api/board[?chat=<id>]` | Returns `{ ideas, name }`. CORS pinned to `PUBLIC_BASE_URL` |
 | Idea PATCH | `PATCH /api/ideas/:uid[?chat=<id>]` body `{name?, long?}` | Auth required (session + editor whitelist). Writes append `idea_edited` |
 | Vote toggle | `POST /api/ideas/:uid/vote[?chat=<id>]` | Auth required (any GitHub user). Idempotent toggle |
 | Auth | `GET /auth/github/start`, `GET /auth/github/callback`, `POST /auth/logout`, `GET /api/me` | GitHub OAuth + signed session cookie |

@@ -30,9 +30,35 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
   bot.command("start", async (ctx) => {
     const base = agent.bindings.PUBLIC_BASE_URL ?? "https://quorum.joao-f-o-goncalves.workers.dev";
     const boardUrl = `${base}/?chat=${ctx.chat.id}`;
-    await ctx.reply(`${fmt.welcome()}\n\n📋 Live board for this chat:\n${boardUrl}`, {
-      parse_mode: "Markdown",
-    });
+    // /start can be called with a name as the argument: `/start <name>`. If
+    // supplied, save it. Otherwise use whatever the chat already named the
+    // board (might be null for fresh chats).
+    const arg = ctx.match.trim();
+    if (arg) agent.setBoardName(arg);
+    const name = agent.getBoardName();
+    const lines = [fmt.welcome(name), "", "📋 Live board for this chat:", boardUrl];
+    if (!name) {
+      lines.push("", "What should we call this board? Reply with `/name <something>`.");
+    }
+    await ctx.reply(lines.join("\n"), { parse_mode: "Markdown" });
+  });
+
+  bot.command("name", async (ctx) => {
+    const text = ctx.match.trim();
+    if (!text) {
+      const current = agent.getBoardName();
+      return ctx.reply(
+        current
+          ? `This board is called: ${current}\nUse "/name <new name>" to change it, or "/name -" to clear.`
+          : `This board has no name yet. Use "/name <something>" to set one.`,
+      );
+    }
+    if (text === "-" || text === "—") {
+      agent.setBoardName("");
+      return ctx.reply("Board name cleared.");
+    }
+    const saved = agent.setBoardName(text);
+    await ctx.reply(`Board renamed to: ${saved ?? text}`);
   });
 
   bot.command("help", async (ctx) => {

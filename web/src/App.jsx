@@ -9,6 +9,7 @@ const COLUMNS = [
 
 export default function App() {
   const [ideas, setIdeas] = useState([]);
+  const [boardName, setBoardName] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [openId, setOpenId] = useState(null);
@@ -19,6 +20,7 @@ export default function App() {
     Promise.all([fetchBoard(), fetchMe()])
       .then(([board, who]) => {
         setIdeas(board.ideas ?? []);
+        setBoardName(board.name ?? null);
         setMe(who);
       })
       .catch((e) => setError(e.message))
@@ -83,7 +85,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header total={ideas.length} me={me} />
+      <Header total={ideas.length} me={me} boardName={boardName} />
 
       <main className="board">
         {COLUMNS.map((col, idx) => (
@@ -122,7 +124,7 @@ export default function App() {
   );
 }
 
-function Header({ total, me }) {
+function Header({ total, me, boardName }) {
   const isAuthed = !!me?.login;
   const isEditor = !!me?.can_edit;
 
@@ -141,7 +143,14 @@ function Header({ total, me }) {
       <div className="head__brand">
         <img className="head__mark" src="/logo.svg" alt="" width="22" height="22" />
         <span className="head__name">Quorum</span>
-        <span className="head__tag">— what to build</span>
+        {boardName ? (
+          <>
+            <span className="head__divider" aria-hidden="true">/</span>
+            <span className="head__board">{boardName}</span>
+          </>
+        ) : (
+          <span className="head__tag">— what to build</span>
+        )}
       </div>
       <div className="head__meta">
         <span className="head__count">

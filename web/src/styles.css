@@ -103,6 +103,24 @@ input, textarea { font: inherit; color: inherit; }
   text-transform: lowercase;
 }
 
+.head__divider {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 300;
+  margin: 0 2px;
+}
+
+.head__board {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 300;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--accent);
+  font-variation-settings: 'opsz' 144, 'SOFT' 50;
+}
+
 .head__meta {
   display: flex; align-items: center; gap: 14px;
   font-family: var(--mono);

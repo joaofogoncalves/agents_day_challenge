@@ -42,9 +42,12 @@ export function notFound(id: number): string {
 }
 
 /** Conversational welcome — what /start posts. No command catalog. */
-export function welcome(): string {
+export function welcome(boardName?: string | null): string {
+  const headline = boardName
+    ? `Hi 👋 I'm Quorum, helping *${boardName}* converge on *what to build*.`
+    : "Hi 👋 I'm Quorum. I sit in your chat and help your team converge on *what to build*.";
   return [
-    "Hi 👋 I'm Quorum. I sit in your chat and help your team converge on *what to build*.",
+    headline,
     "",
     "Just talk to me. Tag me (`@`-mention or reply) and say things like:",
     "  • *what if we built X?* — I'll add it as an idea",
@@ -92,6 +95,7 @@ export function help(): string {
     "",
     "_Meta_",
     "  /board — link to this chat's board UI",
+    "  /name [text] — set or show this board's name",
     "  /whoami — show chat + user id (debug)",
     "",
     "Or just talk to me by tagging me — I'll figure out what you mean.",

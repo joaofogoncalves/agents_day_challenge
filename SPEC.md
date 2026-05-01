@@ -118,6 +118,7 @@ Reply format is plain text (Telegram MarkdownV2 escaping handled by `format.ts`)
 | `/gh <username>` | gh handle | Fetch profile, merge into skills | Same as `/me` |
 | `/team` | — | Aggregate skills + gaps | `Strong: [...]. Gaps: [...]. Members: N.` |
 | `/forget` | — | DELETE from `members` where user_id=caller | `Wiped.` |
+| `/name [text]` | optional name | Set or show this board's name. `-` clears. Stored in `context` under key `board_name`. | `Board renamed to: …` / `Board name cleared.` |
 | `/promote <id>` | id | Move to next phase | `#id: ideating → validating` |
 | `/park <id>` | id | status=parked | `#id parked. Eligible for backflow.` |
 | `/kill <id>` | id | status=killed | `#id killed. Still queryable.` |
@@ -171,7 +172,7 @@ Derived, not stored. `score = round(composite × 10)` clamped to `[0, 10]` where
 
 ### Endpoints
 
-`GET /api/board` returns `{ ideas: Idea[] }` ordered by `id ASC`, restricted to board-visible statuses. The `Idea` shape:
+`GET /api/board` returns `{ ideas: Idea[], name: string | null }` ordered by `id ASC`, restricted to board-visible statuses. `name` is the human-readable board name (set via `/start <name>` or `/name`, stored in `context.board_name`). The `Idea` shape:
 
 ```ts
 type Idea = {
@@ -202,6 +203,8 @@ The Agent class is the canonical state owner. All command handlers go through th
 | `addIdea(text, authorId)` | `string, string` | `{ id: number }` | `/idea`, router `add_idea` |
 | `toggleVote(id, voterKey)` | `number, string` | `{ votes, voted }` | `POST /api/ideas/<uid>/vote`, `/vote`, regex `+1 #N`. Idempotent on `(idea_id, voter_key)` in `idea_votes` |
 | `voterKeyForTelegram(telegramUserId)` | `string` | `string` | Resolves a Telegram user to a voter_key. Returns `gh:<login>` if the user has linked a GH account via `/gh`, else `tg:<userId>`. Lets a single person voting from web AND Telegram share one vote. |
+| `getBoardName()` | — | `string \| null` | Read the human-friendly board name from `context.board_name`. Used by `/api/board`, the welcome message, and the answer-question snapshot. |
+| `setBoardName(name)` | `string` | `string \| null` | Set / clear (`""`) the board name. Trimmed and clipped to 80 chars. Logs a `context_changed` event. |
 | `listIdeas(phase?)` | `string?` | `Idea[]` | `/ideas`, `/rank` |
 | `rank(limit)` | `number` | `Idea[]` | `/rank`, router `answer_question` |
 | `setContext(updates)` | `Record<string,string>` | `{ recomputed: number }` | `/event`, `/constraint` |

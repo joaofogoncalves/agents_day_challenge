@@ -80,7 +80,10 @@ export class QuorumAgent extends Agent<Env> {
     const callerEditor = request.headers.get("x-quorum-editor") === "1";
 
     if (url.pathname === "/board" && request.method === "GET") {
-      return jsonResponse({ ideas: this.getBoard(callerVoterKey) });
+      return jsonResponse({
+        ideas: this.getBoard(callerVoterKey),
+        name: this.getBoardName(),
+      });
     }
 
     if (url.pathname.startsWith("/board/ideas/") && request.method === "PATCH") {
@@ -371,6 +374,35 @@ export class QuorumAgent extends Agent<Env> {
     return [head, reason, "Audit:", audit].filter(Boolean).join("\n");
   }
 
+  // ── Board metadata ──────────────────────────────────────────────
+
+  /** Human-friendly name for this board, set via /start <name> or /name. */
+  getBoardName(): string | null {
+    const rows = this.sql<{ value: string }>`
+      SELECT value FROM context WHERE key = 'board_name'
+    `;
+    const v = rows[0]?.value?.trim();
+    return v ? v : null;
+  }
+
+  /** Set or clear the board name. Empty string clears it. Returns the cleaned value. */
+  setBoardName(name: string): string | null {
+    const cleaned = name.trim().slice(0, 80);
+    const now = Date.now();
+    if (cleaned === "") {
+      this.sql`DELETE FROM context WHERE key = 'board_name'`;
+      this.appendEvent(null, "context_changed", { board_name: null });
+      return null;
+    }
+    this.sql`
+      INSERT INTO context (key, value, updated_at)
+      VALUES ('board_name', ${cleaned}, ${now})
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `;
+    this.appendEvent(null, "context_changed", { board_name: cleaned });
+    return cleaned;
+  }
+
   // ── Context ──────────────────────────────────────────────────────
 
   setContext(updates: Record<string, string>): { recomputed: number } {
@@ -594,6 +626,7 @@ export class QuorumAgent extends Agent<Env> {
         chat_id: meta.chatId ?? null,
         board_url: meta.boardUrl ?? null,
         bot_username: meta.botUsername ?? null,
+        board_name: this.getBoardName(),
       },
       counts: {
         total_ideas: ideas.length,
