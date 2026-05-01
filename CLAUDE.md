@@ -94,11 +94,6 @@ Still to do, in order:
 
 Out-of-scope for this iteration but tracked here for visibility:
 
-- [ ] **Telegram `/vote` per-user tracking.** Web votes track
-      `(idea_id, voter_key="gh:<login>")` in `idea_votes`. Telegram
-      `/vote` still writes the legacy `ideas.votes` counter directly,
-      no per-user row. Unify by giving Telegram votes the key
-      `tg:<user_id>` and routing `/vote` through `toggleVote`.
 - [ ] **Realtime board updates.** Board fetches once on load. The
       agent moves cards; the UI doesn't notice until reload. Polling
       or websocket pass after deploy.

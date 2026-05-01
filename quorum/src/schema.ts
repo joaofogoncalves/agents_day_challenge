@@ -78,8 +78,12 @@ export const ADDITIVE_MIGRATIONS = [
   `ALTER TABLE ideas ADD COLUMN long TEXT`,
   `ALTER TABLE ideas ADD COLUMN hours INTEGER`,
   // feat/social-ranking-and-auth: per-user vote tracking. PRIMARY KEY enforces
-  // one vote per (idea, voter). voter_key = "gh:<lowercased_login>" for web,
-  // "tg:<user_id>" reserved for a future Telegram unification.
+  // one vote per (idea, voter). voter_key shapes:
+  //   • "gh:<lowercased_login>" — web (GitHub OAuth) and Telegram users who
+  //     have linked a GitHub account via /gh (so the same person voting on
+  //     web and Telegram doesn't double-count).
+  //   • "tg:<telegram_user_id>" — Telegram users without a linked GH account.
+  // Resolution lives in QuorumAgent.voterKeyForTelegram.
   `CREATE TABLE IF NOT EXISTS idea_votes (
     idea_id INTEGER NOT NULL,
     voter_key TEXT NOT NULL,

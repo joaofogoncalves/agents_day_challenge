@@ -88,7 +88,7 @@ In addition to slash commands, the bot now reads every plain-text message and ac
 
 1. **Silent observation.** Every message → `agent.observe(text, authorId, authorName, addressed)` → `messages` table. Free, no LLM call. Foundation for the "reads everything" pitch.
 2. **Regex shortcuts.** Deterministic patterns dispatch instantly to existing methods. No LLM:
-   - `+1 #N` / `👍 #N` / `vote #N` → `voteIdea(N, …)`
+   - `+1 #N` / `👍 #N` / `vote #N` → `toggleVote(N, voterKeyForTelegram(userId))` (idempotent per user)
    - `kill #N` → `setStatus(N, "killed")`
    - `park #N` → `setStatus(N, "parked")`
    - `promote #N` → `promote(N)`
@@ -111,7 +111,7 @@ Reply format is plain text (Telegram MarkdownV2 escaping handled by `format.ts`)
 |---------|------|--------|-------------|
 | `/idea <text>` | text | INSERT into `ideas`, status=ideating | `Idea #N added — "<text>"` |
 | `/ideas [phase]` | optional phase filter | SELECT, sorted by composite | List with `#id score text` |
-| `/vote <id>` | idea id | +1 vote | `Voted. Total: N` |
+| `/vote <id>` | idea id | Toggle vote for caller (idempotent per `(idea, voter)`) | `Voted. Total: N` / `Vote removed. Total: N` |
 | `/event <url>` | url | Scrape, populate `context`, recompute fit on all ideas | `Context set: deadline=…, budget=…. Recomputed N ideas.` |
 | `/constraint <text>` | text | UPSERT `context`, **re-validate all parked/killed** | `Reanimated: [#x, #y]. Demoted: [#z]. Reason: …` |
 | `/me <text>` | free-text skills | LLM extract → `members.skills_json` | `Saved skills: [t1, t2, …]` |
@@ -200,8 +200,8 @@ The Agent class is the canonical state owner. All command handlers go through th
 | Method | Args | Returns | Caller |
 |--------|------|---------|--------|
 | `addIdea(text, authorId)` | `string, string` | `{ id: number }` | `/idea`, router `add_idea` |
-| `voteIdea(id, userId)` | `number, string` | `{ votes: number }` | `/vote`, regex `+1 #N` (legacy counter; per-user toggle goes through `toggleVote`) |
-| `toggleVote(id, voterKey)` | `number, string` | `{ votes, voted }` | `POST /api/ideas/<uid>/vote`. Idempotent on `(idea_id, voter_key)` in `idea_votes` |
+| `toggleVote(id, voterKey)` | `number, string` | `{ votes, voted }` | `POST /api/ideas/<uid>/vote`, `/vote`, regex `+1 #N`. Idempotent on `(idea_id, voter_key)` in `idea_votes` |
+| `voterKeyForTelegram(telegramUserId)` | `string` | `string` | Resolves a Telegram user to a voter_key. Returns `gh:<login>` if the user has linked a GH account via `/gh`, else `tg:<userId>`. Lets a single person voting from web AND Telegram share one vote. |
 | `listIdeas(phase?)` | `string?` | `Idea[]` | `/ideas`, `/rank` |
 | `rank(limit)` | `number` | `Idea[]` | `/rank`, router `answer_question` |
 | `setContext(updates)` | `Record<string,string>` | `{ recomputed: number }` | `/event`, `/constraint` |

@@ -33,8 +33,8 @@ export function ideaAdded(id: number, text: string): string {
   return `Idea #${id} added — "${text}"`;
 }
 
-export function voted(votes: number): string {
-  return `Voted. Total: ${votes}`;
+export function voted(votes: number, up = true): string {
+  return up ? `Voted. Total: ${votes}` : `Vote removed. Total: ${votes}`;
 }
 
 export function notFound(id: number): string {

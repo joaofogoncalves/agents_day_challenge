@@ -71,9 +71,10 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
   bot.command("vote", async (ctx) => {
     const id = parseInt(ctx.match.trim(), 10);
     if (!Number.isFinite(id)) return ctx.reply("usage: /vote <id>");
-    const result = agent.voteIdea(id, authorOf(ctx));
+    const voterKey = agent.voterKeyForTelegram(authorOf(ctx));
+    const result = agent.toggleVote(id, voterKey);
     if (result == null) return ctx.reply(fmt.notFound(id));
-    await ctx.reply(fmt.voted(result.votes));
+    await ctx.reply(fmt.voted(result.votes, result.voted));
   });
 
   bot.command("promote", async (ctx) => {
@@ -471,13 +472,14 @@ async function tryRegexShortcut(
 ): Promise<boolean> {
   const trimmed = text.trim();
 
-  // +1 #N  /  👍 #N  /  vote #N → upvote
+  // +1 #N  /  👍 #N  /  vote #N → upvote (toggle, idempotent per-user)
   const voteMatch = /^(?:\+1|👍|vote)\s+#?(\d+)$/i.exec(trimmed);
   if (voteMatch) {
     const id = parseInt(voteMatch[1] ?? "0", 10);
-    const result = agent.voteIdea(id, authorId);
+    const voterKey = agent.voterKeyForTelegram(authorId);
+    const result = agent.toggleVote(id, voterKey);
     if (result == null) await ctx.reply(fmt.notFound(id));
-    else await ctx.reply(fmt.voted(result.votes));
+    else await ctx.reply(fmt.voted(result.votes, result.voted));
     return true;
   }
 
