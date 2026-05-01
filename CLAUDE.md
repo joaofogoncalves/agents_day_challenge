@@ -199,3 +199,15 @@ This is a 1-day build with three people working concurrently:
 ## When you find something worth doing later
 
 If during a session you spot a new idea, a half-broken thing, an architectural improvement, a product feature, or a "we should do X someday" thought — and it's **not load-bearing for today's demo** — append a short bullet to [`NEXT_STEPS.md`](./NEXT_STEPS.md) under "Out of scope" or "Known issues". One line, with enough context that the next reader understands the *why*. Don't act on it, don't open a side quest, don't let the demo slip. Just capture it. The point of the file is that nothing valuable evaporates between sessions.
+
+## Realtime board demo runbook
+
+Two browsers side-by-side, both at `https://quorum.joao-f-o-goncalves.workers.dev/?chat=-5224131572`.
+
+1. **Connect.** Both windows show a green dot in the header (live). Each shows the other's avatar in the presence pile.
+2. **Vote propagation.** Sign in on both. Alice clicks the thumbs-up on a card. Within ~500ms, Bob's window shows the count tick up and a `> alice voted qrm_…` row appears on the right-hand activity rail.
+3. **Edit propagation.** Open a card on Alice's window, change the name, save. Bob's card updates in place; rail prepends a `> alice edited qrm_…` row.
+4. **Agent move.** In the Telegram demo group, fire `/constraint budget down to $5k` (or any constraint message the bot recognises). On both browsers, cards glide between columns and the rail shows `> Quorum reanimated 2, demoted 1 — budget down to $5k`.
+5. **Reconnect.** Disable Alice's network for ~5s, restore it. Header dot cycles green → amber pulsing → green. Snapshot resyncs from the new `hello`.
+
+If the WebSocket fails entirely (origin check, infrastructure, etc.), the board still renders — `useLiveBoard` does a one-shot `/api/board` + `/api/me` fetch on mount as a cold-start safety net, and falls back to the same fetch after 10s of offline. You'll see the connection dot stuck red/amber and no live updates, but voting and editing still work via REST. Check `wrangler tail` for the `/api/socket` upgrade — the most common failure is the Origin check rejecting an unexpected host.
