@@ -66,10 +66,18 @@ export async function complete(
       if (res?.response) return res.response;
       errors.push(new Error(`empty response from ${model}`));
     } catch (e) {
+      console.error(`LLM ${model} failed:`, e);
       errors.push(e);
     }
   }
-  throw new AggregateError(errors, "all LLM models failed");
+  // AggregateError stringifies as just the summary message, which loses the
+  // underlying cause (quota cap, model 4xx, etc). Inline the per-model errors
+  // so the chat reply that surfaces this is actually actionable.
+  const causes = errors
+    .map((e) => (e instanceof Error ? e.message : String(e)))
+    .filter(Boolean)
+    .join(" | ");
+  throw new Error(`all LLM models failed: ${causes || "no error detail"}`);
 }
 
 /**
