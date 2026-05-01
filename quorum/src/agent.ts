@@ -20,6 +20,11 @@ import { complete, type ChatMessage } from "./llm";
 export class QuorumAgent extends Agent<Env> {
   private bot?: Bot;
 
+  /** Public access for command-handler helpers in src/telegram.ts. */
+  get bindings(): Env {
+    return this.env;
+  }
+
   onStart(): void {
     for (const stmt of SCHEMA) {
       this.sql([stmt] as unknown as TemplateStringsArray);
