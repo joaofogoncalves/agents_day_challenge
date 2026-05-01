@@ -2,7 +2,7 @@
 
 **Scope:** Workers AI prompts, GitHub skills extraction, dogfooding, prompt quality.
 
-## Status (H+4, 12:43)
+## Status (demo day)
 
 The plumbing for everything in your scope is **already in `main`**. Files are not where the original plan put them — the integration is leaner now:
 
@@ -45,10 +45,6 @@ In rough priority order:
 4. **Plan generation prompt refinement.** `agent.planFor()`. Should reference at least one team member by skill ("Twody7 owns Workers AI integration → assign milestone 2"). Markdown sections: `## Milestones / ## Risks / ## Suggested owners`.
 5. **Cost monitoring.** Add basic logging — Neurons used per call, fallback rate. If we're trending toward the 10K/day cap, swap to AI Gateway + Gemini 2.5 Flash (the documented escape hatch in PLAN.md).
 6. **Event-page extraction.** Less critical — only used for `/event <url>` which is a side flow. Refine if time permits.
-
-## ⚠️ Note: bot is currently broken in groups
-
-Every command throws `raw.trim is not a function` in the demo group right now. João is fixing it — you can't dogfood until it's resolved. While you wait, you can iterate prompts locally by editing `quorum/src/agent.ts` / `quorum/src/telegram.ts`, running `npm run check`, and grep'ing for the prompt strings to refine without leaving the editor.
 
 ## Interfaces I produce / consume
 

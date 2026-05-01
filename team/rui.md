@@ -2,9 +2,9 @@
 
 **Scope:** the board UI in `web/`, message-text rendering for Telegram, demo capture.
 
-## Status (H+4, 12:43)
+## Status (demo day)
 
-The board prototype shipped end-to-end and is **live in production** at `https://quorum.joao-f-o-goncalves.workers.dev/?chat=<id>`. It reads the same `QuorumAgent` SQLite that the Telegram bot writes to — one source of truth.
+The board prototype shipped end-to-end and is **live in production** at `https://quorum.joao-f-o-goncalves.workers.dev/?chat=<id>`. It reads the same `QuorumAgent` SQLite that the Telegram bot writes to — one source of truth. `DEFAULT_BOARD_CHAT` now points at the demo group (`-5224131572`), so the bare URL loads the demo board.
 
 The original plan had your work split between `src/format.ts` (Telegram message templates) inside the bot Worker and `src/web/` (server-rendered `/g/<token>` view). That changed:
 
@@ -33,15 +33,12 @@ The original plan had your work split between `src/format.ts` (Telegram message 
 
 In rough priority order:
 
-1. **Live in the Quorum Demo group.** The bot is in chat `-5224131572`. Open `https://quorum.joao-f-o-goncalves.workers.dev/?chat=-5224131572` and confirm it loads. (Will be empty until the runtime bug João is fixing lets `/idea` actually persist there.)
-2. **Stale board after `/constraint`.** Currently no auto-refresh. Two cheap options for the demo:
-   - Refresh button + 5-second polling fallback. Visible "live" indicator.
-   - Or just refresh manually during the pitch — that's also fine, just rehearse it.
-3. **Score / hours visibility.** The card shows score top-right, hours bottom-left. Verify these read well at projection-distance for the demo.
-4. **Empty state copy.** When the board is empty (likely on the demo's first `/idea`), the placeholder should suggest sending `/idea ...` in chat.
-5. **Error surfacing.** If `/api/board` 5xx's, show something — currently silent failure means an invisible-to-user broken state, which can derail the demo if anything regresses.
-6. **Telegram message polish (low priority).** `quorum/src/format.ts` has placeholder text for `/why` audit trails, `/team` summaries, `/constraint` reanimation replies. The `/constraint` reply is the demo highlight — make that one line readable on a phone screen if you have spare cycles.
-7. **Demo capture.** H+8 — screen recording + edit. The "money moment" is `/constraint we lost a backend dev` reshuffling the board live. Bias the recording around that.
+1. **Polling for live board updates.** **Currently in flight.** The demo's "money moment" is `/constraint we lost a backend dev` reshuffling cards live. Without polling the user has to refresh, which kills the moment. Polling every ~5s on `/api/board` is the cheap fix.
+2. **Empty state copy.** When the board is empty, the placeholder should suggest sending `/idea ...` in chat.
+3. **Error surfacing.** If `/api/board` 5xx's, show something — silent failure can derail the demo if anything regresses.
+4. **Telegram message polish (low priority).** `quorum/src/format.ts` has placeholder text for `/why`, `/team`, `/constraint`. The `/constraint` reply is the demo highlight — make that one line readable on a phone screen if you have spare cycles.
+
+Demo is live (no recording needed).
 
 ## Cloudflare access for `web/` deploys
 
@@ -58,6 +55,5 @@ In rough priority order:
 - ✅ Board renders 3 columns from real API
 - ✅ Edit-modal `PATCH` round-trips through the DO
 - ✅ Deployed to production, single URL
-- ⚠️ **Open**: refresh button or polling so the board updates after `/constraint`
+- ⚠️ **In flight**: polling so the board updates after `/constraint`
 - ⚠️ **Open**: error/empty states have copy
-- ⚠️ **Open**: demo capture

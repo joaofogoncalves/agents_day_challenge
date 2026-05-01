@@ -2,9 +2,11 @@
 
 **Scope:** project bootstrap, the Agent class, Telegram wiring, Workers AI integration, backflow logic, deck.
 
-## Status (H+4, 12:43)
+## Status (demo day)
 
-Way ahead on backend. Significantly ahead of the original H-by-H plan — H+1 through H+7 features are in `main`. **Blocked on one runtime bug** that prevents the demo flow from actually running in Telegram.
+Backend is **live in prod**. Everything in PLAN.md H+1 → H+7 is shipped, plus the agentic intent router (`e88e986`), GitHub OAuth + per-user vote + editor whitelist (`c0cc342`, deployed), per-board names (`5b750f6`), and a refined scoring prompt with rubric (`f82d064`). The bot answers cleanly in groups; the earlier `raw.trim` runtime bug is resolved.
+
+No deck, no recorded demo — pitch is live. Bot token rotation is the only post-demo item.
 
 ## Files I own
 
@@ -14,37 +16,42 @@ Way ahead on backend. Significantly ahead of the original H-by-H plan — H+1 th
 - `quorum/src/telegram.ts` — grammY wiring, command handlers, signature check
 - `quorum/src/llm.ts` — Workers AI wrapper, 70B→8B fallback
 - `quorum/src/backflow.ts` — `/constraint` reanimation logic
+- `quorum/src/router.ts` — addressed-mode intent router (LLM + regex shortcuts)
+- `quorum/src/auth.ts` — GitHub OAuth + signed session cookie
 - `quorum/src/scoring.ts` — composite score math (formula in SPEC.md)
 - `quorum/src/schema.ts` — SQL schema + additive migrations + status↔stage map + uid helpers
-- `deck/` — pitch slides (still TODO)
 
 ## What's done ✅
 
-- H+0: scaffold, secrets set, MCPs connected, first push (`fd65df4`)
-- H+1: Worker + Agent skeleton, webhook live, bot echo working
-- H+2: SQL schema migrated (`new_sqlite_classes` ✓), `/idea /ideas /vote` end-to-end
-- H+3: `/event <url>` scrape pipeline (LLM extraction + setContext recompute)
-- H+5 (early): `/me /gh /team /forget` wired to `setMember` / `teamSummary`
-- H+6 (early): `/promote /park /kill /why /rank` — full state machine + audit trail
-- H+7 (early): `/constraint` + `agent.reanimate()` end-to-end, `/plan` LLM-generated
+- All PLAN.md slash commands shipped end-to-end: `/idea /ideas /vote /event /me /gh /team /forget /promote /park /kill /why /rank /constraint /plan /name`
+- Workers AI wrapper with 70B→8B fallback (`quorum/src/llm.ts`)
+- `/constraint` + `agent.reanimate()` triggering backflow re-validation across parked/killed; `events` table audit trail intact
 - **Architectural merges:**
   - `api/` folded into `quorum/` (`d636ec7`) — single Worker, single DO, one source of truth
   - `web/` UI served as static assets from same Worker (`12af69f`) — single URL
   - Per-chat board URL: `/start` posts `…/?chat=<chatId>`, web/ reads it (`d4a1705`)
   - Always-200 webhook (`b856434`) — prevents Telegram queue lockup on internal errors
+- **Beyond original plan:**
+  - Agentic mode — silent observe + regex shortcuts + addressed LLM intent router (`e88e986`)
+  - GitHub OAuth + per-user vote + editor whitelist (`c0cc342`), deployed and verified in prod
+  - Per-board names via `/start <name>` and `/name` (`5b750f6`)
+  - Telegram votes unified with web votes via `voterKeyForTelegram` (`c343424`)
+  - Bot username canonicalization with typo-tolerant `isAddressed` (`27e38f8`)
+  - Auto-validate on `/promote` so `/ideas` and `/rank` show real composites (`843530d`)
 
 ## What's next
 
-| When | Task |
-|---|---|
-| now | Fix the `raw.trim` bug. Smoke-test the demo arc end-to-end. |
-| H+4 (now) | Lunch + dogfood with the team. Capture prompt failures for Twody7. |
-| H+7 | Wire `Agent.scheduleEvery()` for stall-nudges (still missing). Optional — cuts to "imagine this fired at 9am" if time-pressed. |
-| H+8 | **Deck (3 slides)** — currently empty. (1) the wrong-thing-to-build problem, (2) `/constraint` demo flow, (3) all-Cloudflare architecture diagram. |
-| H+8 | Pitch dry-run with Rui & Twody7. |
-| H+9 | Submit. Buffer for breakage. |
+Pre-demo cleanup (in flight this session):
 
-Bot token rotation is also still pending (the original token leaked in a chat transcript): `@BotFather → /revoke → @quorum_bot → new token → wrangler secret put TELEGRAM_BOT_TOKEN → re-run setWebhook`. Webhook secret stays as-is.
+- Reconcile schema drift in `schema.ts` (CREATE TABLE vs. ADDITIVE_MIGRATIONS)
+- `git rm -r api/` — dead code
+- CSRF token on `/auth/logout` and `/api/ideas/:uid/vote`
+- `Agent.scheduleEvery()` stall-nudge cron (once-a-day prompt on stale parked ideas)
+- Final deploy + smoke test on the prod URL
+
+Post-demo:
+
+- Bot token rotation (the original token leaked in a chat transcript): `@BotFather → /revoke → @quorum_bot → new token → wrangler secret put TELEGRAM_BOT_TOKEN → re-run setWebhook`. Webhook secret stays as-is.
 
 ## Interfaces I produce
 
@@ -58,10 +65,9 @@ All documented in `SPEC.md`. If you change a signature, change SPEC in the same 
 
 ## Definition of done
 
-- ⚠️ **Open**: bot replies in groups without erroring
-- ⚠️ **Open**: deck exists in `deck/` (3 slides minimum)
+- ✅ Bot replies cleanly in groups (`raw.trim` bug resolved)
 - ✅ Bot echoes any message in the test group
 - ✅ Ideas survive a `wrangler dev` restart; SPEC matches code
 - ✅ `setMember` round-trips; `extractSkills` produces a sensible list
 - ✅ `/constraint we lost a backend dev` triggers re-validation across parked/killed; `events` table reflects every transition
-- ✅ Board UI reflects DO state in real time (refresh-based; no realtime push yet)
+- ⚠️ Board UI reflects DO state — Rui shipping polling for live updates after `/constraint`

@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: deployed, end-to-end live, one runtime bug open
+## Status: deployed, end-to-end live, demo-ready
 
 Hackathon repository (Cloudflare-sponsored Agents Day, May 1 2026). The project lives in `quorum/`; the board UI source in `web/`; planning docs at the root.
 
@@ -19,7 +19,7 @@ Read in order:
 
 This file is a thin orientation layer on top of the above. Don't restate them here — point to them.
 
-## What's live (as of H+4)
+## What's live
 
 | Surface | URL | Notes |
 |---|---|---|
@@ -32,64 +32,42 @@ This file is a thin orientation layer on top of the above. Don't restate them he
 | Liveness | `https://quorum.joao-f-o-goncalves.workers.dev/healthz` | `ok` / 200 |
 
 The bot is in two Telegram groups:
-- **Team coord** (`-5120669057`) — gets push notifications on every commit via `.github/workflows/notify-telegram.yml`. Default for board UI.
-- **Quorum Demo** (`-5224131572`) — clean state for the actual demo. Board for it: `…/?chat=-5224131572`.
+- **Quorum Demo** (`-5224131572`) — long-term test + live demo group. **`DEFAULT_BOARD_CHAT` points here**, so the bare prod URL loads this board.
+- **Team coord** (`-5120669057`) — gets push notifications on every commit via `.github/workflows/notify-telegram.yml`. Board for it: `…/?chat=-5120669057`.
 
 > Canonical bot username is **`@quorum_bot`**. An older deploy used `@quorom_bot` (typo); `isAddressed` in `quorum/src/telegram.ts` accepts both spellings via `/@quor[uo]m_bot\b/i` so legacy mentions keep working. Don't remove the tolerant regex without verifying no old `@quorom_bot` references remain in active chats.
 
-## TODO — social-ranking-and-auth deploy
+## Pre-demo punch list
 
-The feature (GitHub OAuth + per-user vote toggle + editor whitelist) is
-**merged to `main`**. Spec:
-[`docs/superpowers/specs/2026-05-01-social-ranking-and-auth-design.md`](./docs/superpowers/specs/2026-05-01-social-ranking-and-auth-design.md).
-The pre-deploy cleanup is now complete:
+GitHub OAuth + per-user vote + editor whitelist (the social-ranking-and-auth
+spec at
+[`docs/superpowers/specs/2026-05-01-social-ranking-and-auth-design.md`](./docs/superpowers/specs/2026-05-01-social-ranking-and-auth-design.md))
+is **shipped and live in prod**. OAuth round-trip works, `/api/me` returns the
+session user, board JSON includes `voted_by_me`, vote toggle is idempotent, and
+`PATCH` from a non-whitelisted account 403s.
 
-- [x] Prod GitHub OAuth App registered (separate from local).
-      Homepage `https://quorum.joao-f-o-goncalves.workers.dev`,
-      callback `…/auth/github/callback`.
-- [x] Three secrets set on the deployed Worker:
-      `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`,
-      `SESSION_SIGNING_KEY` (32-byte hex, distinct from local).
-- [x] `quorum/package.json` `predeploy` cleaned up — drops the unused
-      `VITE_API_BASE` override.
-- [x] `/api/dev-seed` gated. Returns 404 unless the request carries an
-      `X-Dev-Seed-Token` header matching the `DEV_SEED_TOKEN` secret.
-      Secret unset in prod → route invisible. Local: set
-      `DEV_SEED_TOKEN` in `quorum/.dev.vars` and pass the header.
-- [x] CORS pinned. `Access-Control-Allow-Origin` now reflects
-      `env.PUBLIC_BASE_URL` (wildcard fallback when var is missing,
-      i.e. local dev).
+Remaining work being addressed pre-demo:
 
-Still to do, in order:
+- [ ] **Realtime board updates** — Rui is shipping polling on the `web/` side
+      so the board reflows after `/constraint` without a manual refresh.
+- [ ] **CSRF token on `/auth/logout` and `/api/ideas/<uid>/vote`** —
+      `SameSite=Lax` covers the common case but a token is belt-and-suspenders.
+- [ ] **Stall-nudge cron via `Agent.scheduleEvery()`** — once a day the agent
+      picks a parked idea and posts "still parked? kill, revive, or leave?".
+      Demo line: "the agent lives in your chat for real."
+- [ ] **`git rm -r api/`** — dead code since the merge into `quorum/`.
+- [ ] **Schema drift cleanup** — reconcile `CREATE TABLE ideas` in
+      `quorum/src/schema.ts` with the `ADDITIVE_MIGRATIONS` columns
+      (`name`, `brief`, `long`, `hours`).
+- [ ] **OAuth Safari sanity check** — cross-site redirect github.com →
+      workers.dev with `SameSite=Lax`. Worth eyeballing once before the demo.
 
-- [ ] **Confirm `EDITOR_WHITELIST` in `quorum/wrangler.jsonc` is right
-      for prod** before pushing the deploy. Currently
-      `molefas,muffles,joao-f-o-goncalves,twody7`. It's a `var`, not a
-      secret — changes require a redeploy.
-- [ ] **Decide what `DEFAULT_BOARD_CHAT` should point at for the
-      live URL.** Currently `-5120669057` (team coord). Demo chat is
-      `-5224131572`. The bare URL (no `?chat=`) loads whichever this
-      points to; explicit `?chat=<id>` URLs work for both regardless.
-- [ ] **Run `cd quorum && npm run deploy`.** Predeploy rebuilds `web/`,
-      then `wrangler deploy` ships the Worker.
-- [ ] **Smoke test post-deploy** at the prod URL:
-      `/healthz` → `ok`; `/?chat=-5120669057` board loads with sign-in;
-      OAuth round-trip returns to the board with the GH avatar in the
-      header; vote button toggles; PATCH from a non-whitelisted account
-      returns 403.
-- [ ] **Sanity-test the OAuth callback on Safari** (and any other
-      browser the team uses). `SameSite=Lax` should be fine, but the
-      cross-site redirect from github.com → workers.dev is the failure
-      mode worth eyeballing.
+Deferred until after the demo:
 
-Out-of-scope for this iteration but tracked here for visibility:
-
-- [ ] **Realtime board updates.** Board fetches once on load. The
-      agent moves cards; the UI doesn't notice until reload. Polling
-      or websocket pass after deploy.
-- [ ] **CSRF token on `/auth/logout` and the vote endpoint.**
-      `SameSite=Lax` cookies cover the common case for a hackathon
-      prototype, but a proper CSRF token would be belt-and-suspenders.
+- [ ] **Bot token rotation** — the original `TELEGRAM_BOT_TOKEN` was pasted into
+      a Claude transcript. Post-demo: `@BotFather → /revoke → @quorum_bot →
+      new token → wrangler secret put TELEGRAM_BOT_TOKEN → re-run setWebhook`.
+      Webhook secret stays.
 
 ## Project: Quorum
 
@@ -163,7 +141,7 @@ npx wrangler secret put GITHUB_TOKEN
 
 Vars (in `wrangler.jsonc`, no secrets):
 
-- `DEFAULT_BOARD_CHAT` — chat ID the board UI loads when no `?chat=` query param. Currently `-5120669057` (team coord). Flip to demo chat for the demo.
+- `DEFAULT_BOARD_CHAT` — chat ID the board UI loads when no `?chat=` query param. Currently `-5224131572` (Quorum Demo group — long-term test + live demo).
 - `PUBLIC_BASE_URL` — public origin, used by `/start` to build the per-chat board URL.
 
 ## Contracts: always-in-sync

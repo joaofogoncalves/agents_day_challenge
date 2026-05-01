@@ -2,7 +2,7 @@
 
 Things we noticed during the build but **deferred from the demo**. Capture the why so we (or someone reading this later) doesn't relitigate the call. Anything time-critical for today belongs in `team/*.md`, not here.
 
-## After-demo polish (deferred from the agentic-mode plan)
+## After-demo polish
 
 ### Router circuit breaker + per-chat daily counter
 Slot 5 of the agentic-mode plan. Skipped because the demo group's traffic is bounded and `bot.catch` + always-200 already keeps the worker stable.
@@ -18,21 +18,16 @@ The pre-LLM regex blocklist (`router.ts → INJECTION_PATTERNS`) catches the obv
 
 **Defer because:** demo audience isn't adversarial. Real product needs this before any non-friendly chat.
 
-### Real-time board updates
-Currently the board UI in `web/` only fetches on load. After `/constraint` reanimates ideas, the user has to refresh to see the reflow. Two paths:
-- Polling every 5s on the page
-- Worker → Pages websocket / SSE for push updates
-
-Polling is the cheap fix. Probably what Rui will ship if he has time.
-
-### `Agent.scheduleEvery()` for stall nudges
-PLAN.md has it as H+7 work — we never wired it. The idea: every 24h, the agent picks a parked idea and posts "still parked? kill, revive, or leave?" into the chat. Cute feature for "agent that lives in your team's chat for real" but not in the demo arc. Wire post-demo if we keep iterating.
-
 ### Bot token rotation
-The current `TELEGRAM_BOT_TOKEN` was pasted into a Claude conversation and is in transcripts. For a real product launch: `@BotFather → /revoke → @quorum_bot → new token → wrangler secret put TELEGRAM_BOT_TOKEN → re-run setWebhook`. The webhook secret stays.
+The current `TELEGRAM_BOT_TOKEN` was pasted into a Claude conversation and is in transcripts. Post-demo: `@BotFather → /revoke → @quorum_bot → new token → wrangler secret put TELEGRAM_BOT_TOKEN → re-run setWebhook`. The webhook secret stays.
 
-### `api/` Worker cleanup
-Lives at `api/` but is dead code — `quorum/` owns `/api/*` after the merge. Safe to `git rm -r api/` once everyone's confirmed they're not running it locally.
+## In-flight pre-demo (not deferred)
+
+### Real-time board updates
+**Rui owns.** Polling every ~5s on `/api/board` so the board reflows after `/constraint` without a manual refresh. Required for the demo's money moment.
+
+### Stall-nudge cron, `api/` cleanup, schema drift, CSRF
+These were on the deferred list but are being addressed in the same pre-demo cleanup pass. See the punch list in `CLAUDE.md`.
 
 ## Known issues (not blocking demo)
 
@@ -41,9 +36,6 @@ User flagged these had issues; we deprioritized to stay on the agentic refactor.
 
 ### Bot username canonicalization
 The bot's canonical handle is `@quorum_bot`. An earlier deploy used `@quorom_bot` (typo); `isAddressed` in `quorum/src/telegram.ts` keeps both spellings working via `/@quor[uo]m_bot\b/i`. Once we're confident no historical `@quorom_bot` mentions are in active use, the regex can be tightened to the canonical name only.
-
-### Schema drift between SCHEMA and ALTER
-`name`, `brief`, `long`, `hours` columns on `ideas` are added via `ADDITIVE_MIGRATIONS` (try/catch on duplicate-column). The `CREATE TABLE` in `SCHEMA` still doesn't list them. Works because new DOs run both arrays, but a fresh reader of `schema.ts` might be confused. Reconcile later.
 
 ## Out of scope — ideas captured but parked
 
