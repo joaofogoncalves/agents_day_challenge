@@ -1,5 +1,15 @@
 {
   "name": "Hackathon — Agents Day",
+  "team": [
+    { "name": "Joao", "gh_user": "joaofogoncalves", "skills": ["typescript", "cloudflare workers", "react"], "availability": null },
+    { "name": "Rui", "gh_user": "molefas", "skills": ["product", "design", "telegram"], "availability": "evenings" },
+    { "name": "Twody", "gh_user": "twody7", "skills": ["python", "ml", "infra"], "availability": null }
+  ],
+  "context": [
+    { "key": "deadline", "value": "2026-05-01 18:00 UTC" },
+    { "key": "event_url", "value": "https://agents-day.example.com" },
+    { "key": "constraints", "value": ["one-day build", "Cloudflare-only stack", "no Anthropic key"] }
+  ],
   "ideas": [
     {
       "uid": "qrm_8f3a92b1",

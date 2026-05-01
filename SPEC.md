@@ -193,7 +193,23 @@ Derived, not stored. `score = round(composite × 10)` clamped to `[0, 10]` where
 
 ### Endpoints
 
-`GET /api/board` returns `{ ideas: Idea[], name: string | null }` ordered by `id ASC`, restricted to board-visible statuses. `name` is the human-readable board name (set via `/start <name>` or `/name`, stored in `context.board_name`). The `Idea` shape:
+`GET /api/board` returns `{ ideas: Idea[], name: string | null, team: BoardMember[], context: ContextEntry[] }` ordered by `id ASC`, restricted to board-visible statuses. `name` is the human-readable board name (set via `/start <name>` or `/name`, stored in `context.board_name`). `team` is the per-chat member list — telegram user IDs are **not** exposed. `context` is the per-chat key/value block, with `board_name` excluded (already top-level) and JSON-shaped values (`constraints`, `challenges`) parsed.
+
+```ts
+type BoardMember = {
+  name: string;            // display_name fallback to gh_user fallback to "anon"
+  gh_user: string | null;  // drives the avatar (https://github.com/<u>.png)
+  skills: string[];
+  availability: string | null;
+};
+
+type ContextEntry = {
+  key: string;             // e.g. "deadline", "event_url", "constraints"
+  value: unknown;          // string, or parsed array for constraints/challenges
+};
+```
+
+The `Idea` shape:
 
 ```ts
 type Idea = {
@@ -233,6 +249,8 @@ The Agent class is the canonical state owner. All command handlers go through th
 | `toggleVote(id, voterKey)` | `number, string` | `{ votes, voted }` | `POST /api/ideas/<uid>/vote`, `/vote`, regex `+1 #N`. Idempotent on `(idea_id, voter_key)` in `idea_votes` |
 | `voterKeyForTelegram(telegramUserId)` | `string` | `string` | Resolves a Telegram user to a voter_key. Returns `gh:<login>` if the user has linked a GH account via `/gh`, else `tg:<userId>`. Lets a single person voting from web AND Telegram share one vote. |
 | `getBoardName()` | — | `string \| null` | Read the human-friendly board name from `context.board_name`. Used by `/api/board`, the welcome message, and the answer-question snapshot. |
+| `getTeamForBoard()` | — | `BoardMember[]` | Public projection of `members` for the web UI. Telegram user IDs are NOT exposed; only `name`, `gh_user`, `skills`, `availability`. Drives the rail's "Team" section. |
+| `getContextForBoard()` | — | `ContextEntry[]` | Public projection of `context` for the web UI. `board_name` excluded; JSON-shaped values (`constraints`, `challenges`) parsed into arrays. Drives the rail's "Context" section. |
 | `setBoardName(name)` | `string` | `string \| null` | Set / clear (`""`) the board name. Trimmed and clipped to 80 chars. Logs a `context_changed` event. |
 | `listIdeas(phase?)` | `string?` | `Idea[]` | `/ideas`, `/rank` |
 | `rank(limit)` | `number` | `Idea[]` | `/rank`, router `answer_question` |

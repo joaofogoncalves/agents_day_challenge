@@ -10,6 +10,8 @@ const COLUMNS = [
 export default function App() {
   const [ideas, setIdeas] = useState([]);
   const [boardName, setBoardName] = useState(null);
+  const [team, setTeam] = useState([]);
+  const [context, setContext] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [openId, setOpenId] = useState(null);
@@ -21,6 +23,8 @@ export default function App() {
       .then(([board, who]) => {
         setIdeas(board.ideas ?? []);
         setBoardName(board.name ?? null);
+        setTeam(board.team ?? []);
+        setContext(board.context ?? []);
         setMe(who);
       })
       .catch((e) => setError(e.message))
@@ -87,19 +91,22 @@ export default function App() {
     <div className="app">
       <Header total={ideas.length} me={me} boardName={boardName} />
 
-      <main className="board">
-        {COLUMNS.map((col, idx) => (
-          <Column
-            key={col.id}
-            index={idx}
-            column={col}
-            ideas={byStage[col.id]}
-            loading={loading}
-            onOpen={canEdit ? setOpenId : null}
-            onVote={canVote ? toggleVote : null}
-            isAuthed={isAuthed}
-          />
-        ))}
+      <main className="body">
+        <Rail team={team} context={context} loading={loading} />
+        <section className="board">
+          {COLUMNS.map((col, idx) => (
+            <Column
+              key={col.id}
+              index={idx}
+              column={col}
+              ideas={byStage[col.id]}
+              loading={loading}
+              onOpen={canEdit ? setOpenId : null}
+              onVote={canVote ? toggleVote : null}
+              isAuthed={isAuthed}
+            />
+          ))}
+        </section>
       </main>
 
       <footer className="foot">
@@ -211,6 +218,120 @@ function GhMark() {
       />
     </svg>
   );
+}
+
+function Rail({ team, context, loading }) {
+  return (
+    <aside className="rail">
+      <section className="rail__section">
+        <div className="rail__head">
+          <span className="rail__num">A</span>
+          <h2 className="rail__title">Team</h2>
+          <span className="rail__count">{team.length}</span>
+        </div>
+        {loading ? (
+          <div className="rail__hint">loading…</div>
+        ) : team.length === 0 ? (
+          <div className="rail__empty">— no members yet —</div>
+        ) : (
+          <ul className="rail__list">
+            {team.map((m, i) => (
+              <Member key={`${m.gh_user ?? m.name}-${i}`} member={m} />
+            ))}
+          </ul>
+        )}
+        <p className="rail__hint">/me &lt;skills&gt; · /gh &lt;handle&gt; in chat</p>
+      </section>
+
+      <section className="rail__section">
+        <div className="rail__head">
+          <span className="rail__num">B</span>
+          <h2 className="rail__title">Context</h2>
+          <span className="rail__count">{context.length}</span>
+        </div>
+        {loading ? (
+          <div className="rail__hint">loading…</div>
+        ) : context.length === 0 ? (
+          <div className="rail__empty">— none set —</div>
+        ) : (
+          <ul className="rail__ctx">
+            {context.flatMap((entry) => renderContextEntry(entry))}
+          </ul>
+        )}
+        <p className="rail__hint">/event &lt;url&gt; · /constraint &lt;text&gt;</p>
+      </section>
+    </aside>
+  );
+}
+
+function Member({ member }) {
+  const initial = (member.name?.[0] ?? '?').toUpperCase();
+  const avatarUrl = member.gh_user
+    ? `https://github.com/${encodeURIComponent(member.gh_user)}.png?size=80`
+    : null;
+  const skillsTitle = member.skills.length ? `skills: ${member.skills.join(', ')}` : 'no skills set';
+  return (
+    <li className="member" title={skillsTitle}>
+      {avatarUrl ? (
+        <img className="member__avatar" src={avatarUrl} alt="" />
+      ) : (
+        <span className="member__avatar member__avatar--initial">{initial}</span>
+      )}
+      <span className="member__body">
+        <span className="member__name">{member.name}</span>
+        {member.gh_user && (
+          <span className="member__sub">@{member.gh_user}</span>
+        )}
+        {member.skills.length > 0 && (
+          <span className="member__skills">
+            {member.skills.slice(0, 3).join(' · ')}
+            {member.skills.length > 3 ? ` +${member.skills.length - 3}` : ''}
+          </span>
+        )}
+      </span>
+    </li>
+  );
+}
+
+// Render a context entry as one or more <li>. Arrays expand into separate
+// rows so a multi-constraint /event read isn't one giant blob.
+function renderContextEntry({ key, value }) {
+  const label = key.replace(/_/g, ' ');
+  if (Array.isArray(value)) {
+    if (value.length === 0) return [];
+    return value.map((v, i) => (
+      <li key={`${key}-${i}`} className="ctx">
+        <span className="ctx__k">{label}</span>
+        <span className="ctx__v">{stringifyContextValue(v)}</span>
+      </li>
+    ));
+  }
+  if (key === 'event_url' && typeof value === 'string') {
+    return [
+      <li key={key} className="ctx">
+        <span className="ctx__k">{label}</span>
+        <a className="ctx__v ctx__link" href={value} target="_blank" rel="noopener noreferrer">
+          {value.replace(/^https?:\/\//, '')}
+        </a>
+      </li>,
+    ];
+  }
+  return [
+    <li key={key} className="ctx">
+      <span className="ctx__k">{label}</span>
+      <span className="ctx__v">{stringifyContextValue(value)}</span>
+    </li>,
+  ];
+}
+
+function stringifyContextValue(v) {
+  if (v == null) return '—';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'object') {
+    if (typeof v.name === 'string') return v.name;
+    return JSON.stringify(v);
+  }
+  return String(v);
 }
 
 function Column({ column, ideas, loading, onOpen, onVote, isAuthed, index }) {

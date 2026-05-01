@@ -94,6 +94,8 @@ export class QuorumAgent extends Agent<Env> {
       return jsonResponse({
         ideas: this.getBoard(callerVoterKey),
         name: this.getBoardName(),
+        team: this.getTeamForBoard(),
+        context: this.getContextForBoard(),
       });
     }
 
@@ -573,6 +575,46 @@ export class QuorumAgent extends Agent<Env> {
   async reanimate(constraint: string): Promise<ReanimateResult> {
     this.setContext({ constraint });
     return runReanimate(this, constraint);
+  }
+
+  /**
+   * Public projection of the team for the board UI. Telegram user IDs
+   * are NOT exposed — only display_name + gh_user (drives the avatar)
+   * + skills + availability.
+   */
+  getTeamForBoard(): Array<{
+    name: string;
+    gh_user: string | null;
+    skills: string[];
+    availability: string | null;
+  }> {
+    const rows = this.sql<Member>`
+      SELECT * FROM members ORDER BY joined_at ASC
+    `;
+    return rows.map((m) => ({
+      name: m.display_name?.trim() || m.gh_user || "anon",
+      gh_user: m.gh_user,
+      skills: safeJson<string[]>(m.skills_json) ?? [],
+      availability: m.availability,
+    }));
+  }
+
+  /**
+   * Public projection of the context block for the board UI. board_name
+   * is excluded (already top-level). JSON-shaped values (`constraints`,
+   * `challenges`) are parsed; everything else is a string.
+   */
+  getContextForBoard(): Array<{ key: string; value: unknown }> {
+    const rows = this.sql<{ key: string; value: string }>`
+      SELECT key, value FROM context WHERE key != 'board_name' ORDER BY key ASC
+    `;
+    return rows.map((r) => {
+      if (r.key === "constraints" || r.key === "challenges") {
+        const parsed = safeJson<unknown>(r.value);
+        return { key: r.key, value: parsed ?? r.value };
+      }
+      return { key: r.key, value: r.value };
+    });
   }
 
   // ── Members ──────────────────────────────────────────────────────

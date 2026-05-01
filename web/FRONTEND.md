@@ -82,7 +82,7 @@ Click anywhere else on the card → modal. No drag, no drop, no inline edit, no 
 
 Endpoints live in `quorum/` (Cloudflare Worker + Durable Object SQLite). The Worker also serves the built `web/dist` as static assets, so the prod UI is same-origin and the frontend uses relative paths (`/api/...`, `/auth/...`) — no `VITE_API_BASE`. See `SPEC.md` "HTTP endpoints" + "Board API" for the contract.
 
-- `GET /api/board[?chat=<id>]` → `{ ideas: Idea[], name: string | null }` (each idea has `votes`, `voted_by_me`)
+- `GET /api/board[?chat=<id>]` → `{ ideas, name, team, context }` (each idea has `votes`, `voted_by_me`; `team` and `context` drive the left rail — see SPEC for shapes)
 - `PATCH /api/ideas/:uid` body `{ name?, long? }` → `{ idea: Idea }` — **editor whitelist required**
 - `POST /api/ideas/:uid/vote` → toggles one vote per `(idea, signed-in user)` — **session required**
 - `GET /api/me` → `{ login, avatar_url, can_vote, can_edit }` or `{}` if anon
