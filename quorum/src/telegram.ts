@@ -205,14 +205,26 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
   bot.command("me", async (ctx) => {
     const text = ctx.match.trim();
     if (!text) return ctx.reply("usage: /me <free-text about your skills, role, availability>");
-    const skills = await extractSkills(agent.bindings.AI, text);
+    // Show "typing…" so the chat doesn't go silent during the Workers-AI
+    // round-trip (can be several seconds on the 8B fallback). Mirrors /gh.
+    await ctx.replyWithChatAction("typing").catch(() => {});
+    let skills: string[];
+    try {
+      skills = await extractSkills(agent.bindings.AI, text);
+    } catch (e) {
+      return ctx.reply(`Skill extraction failed: ${(e as Error).message}`);
+    }
     const userId = authorOf(ctx);
     const displayName = ctx.from?.first_name ?? null;
     agent.setMember(userId, {
       display_name: displayName,
       skills_json: JSON.stringify(skills),
     });
-    await ctx.reply(`Saved skills: [${skills.join(", ")}]`);
+    await ctx.reply(
+      skills.length
+        ? `Saved skills: [${skills.join(", ")}]`
+        : `Saved — but I couldn't pull a clean skill list out of that. Try listing concrete tools/languages (e.g. "/me python, postgres, react").`,
+    );
   });
 
   bot.command("gh", async (ctx) => {
