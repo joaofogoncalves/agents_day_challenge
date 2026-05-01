@@ -312,6 +312,21 @@ export class QuorumAgent extends Agent<Env> {
     `;
     const id = rows[0]!.id;
     this.appendEvent(id, "idea_added", { text, author_id: authorId });
+    // Broadcast for live board (after the events row is committed).
+    const eventRow = (this.sql`SELECT id, created_at FROM events WHERE id = (SELECT MAX(id) FROM events)`)[0] as { id: number; created_at: number } | undefined;
+    const ideaRow = this.getBoard(null).find((i) => i.uid === `qrm_${String(id).padStart(6, "0")}`);
+    if (eventRow && ideaRow) {
+      const by: ActorRef = { kind: "agent" };
+      const activity = this.activityRowFromEvent({
+        event_id: eventRow.id,
+        event_kind: "idea_added",
+        target_uid: ideaRow.uid,
+        by,
+        ts: eventRow.created_at,
+        payload: {},
+      });
+      this.broadcastWire({ kind: "idea_added", idea: ideaRow, activity });
+    }
     return { id };
   }
 
