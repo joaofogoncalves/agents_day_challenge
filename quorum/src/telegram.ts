@@ -17,6 +17,7 @@ import { extractSkills } from "./skills";
 import { extractEvent } from "./extract-event";
 import * as github from "./github";
 import { routeIntent } from "./router";
+import { idFromUid } from "./schema";
 import type { ActionPlan } from "./schema";
 import { composite } from "./scoring";
 import { parseDeadline } from "./deadline";
@@ -166,8 +167,8 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
   });
 
   bot.command("vote", async (ctx) => {
-    const id = parseInt(ctx.match.trim(), 10);
-    if (!Number.isFinite(id)) return ctx.reply("usage: /vote <id>");
+    const id = parseIdeaId(ctx.match);
+    if (id == null) return ctx.reply("usage: /vote <id>");
     const voterKey = agent.voterKeyForTelegram(authorOf(ctx));
     const result = agent.toggleVote(id, voterKey);
     if (result == null) return ctx.reply(fmt.notFound(id));
@@ -175,8 +176,8 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
   });
 
   bot.command("promote", async (ctx) => {
-    const id = parseInt(ctx.match.trim(), 10);
-    if (!Number.isFinite(id)) return ctx.reply("usage: /promote <id>");
+    const id = parseIdeaId(ctx.match);
+    if (id == null) return ctx.reply("usage: /promote <id>");
     const out = agent.promote(id);
     if (!out) return ctx.reply(fmt.notFound(id));
     // Auto-validate when landing at 'validating' so scores appear immediately.
@@ -195,22 +196,22 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
   });
 
   bot.command("park", async (ctx) => {
-    const id = parseInt(ctx.match.trim(), 10);
-    if (!Number.isFinite(id)) return ctx.reply("usage: /park <id>");
+    const id = parseIdeaId(ctx.match);
+    if (id == null) return ctx.reply("usage: /park <id>");
     const ok = agent.setStatus(id, "parked", "manual /park");
     await ctx.reply(ok ? `#${id} parked. Eligible for backflow.` : fmt.notFound(id));
   });
 
   bot.command("kill", async (ctx) => {
-    const id = parseInt(ctx.match.trim(), 10);
-    if (!Number.isFinite(id)) return ctx.reply("usage: /kill <id>");
+    const id = parseIdeaId(ctx.match);
+    if (id == null) return ctx.reply("usage: /kill <id>");
     const ok = agent.setStatus(id, "killed", "manual /kill");
     await ctx.reply(ok ? `#${id} killed. Still queryable.` : fmt.notFound(id));
   });
 
   bot.command("why", async (ctx) => {
-    const id = parseInt(ctx.match.trim(), 10);
-    if (!Number.isFinite(id)) return ctx.reply("usage: /why <id>");
+    const id = parseIdeaId(ctx.match);
+    if (id == null) return ctx.reply("usage: /why <id>");
     const out = agent.why(id);
     await ctx.reply(out ?? fmt.notFound(id));
   });
@@ -346,8 +347,8 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
   });
 
   bot.command("validate", async (ctx) => {
-    const id = parseInt(ctx.match.trim(), 10);
-    if (!Number.isFinite(id)) return ctx.reply("usage: /validate <id>");
+    const id = parseIdeaId(ctx.match);
+    if (id == null) return ctx.reply("usage: /validate <id>");
     await ctx.reply(`Scoring #${id} …`);
     try {
       const scores = await agent.validateIdea(id);
@@ -359,8 +360,8 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
   });
 
   bot.command("plan", async (ctx) => {
-    const id = parseInt(ctx.match.trim(), 10);
-    if (!Number.isFinite(id)) return ctx.reply("usage: /plan <id>");
+    const id = parseIdeaId(ctx.match);
+    if (id == null) return ctx.reply("usage: /plan <id>");
     await ctx.reply(`Drafting a plan for #${id} …`);
     const md = await agent.planFor(id);
     await ctx.reply(md);
@@ -649,6 +650,16 @@ async function runValidateIdea(ctx: Context, agent: QuorumAgent, ideaId: number)
   } catch (e) {
     await ctx.reply(`#${ideaId} scoring failed: ${(e as Error).message}`);
   }
+}
+
+/** Parse an idea ID from user input. Accepts: plain integer, #N, qrm_NNNNNN. */
+function parseIdeaId(raw: string): number | null {
+  const s = raw.trim();
+  // UID format: qrm_000001
+  if (/^qrm_/i.test(s)) return idFromUid(s.toLowerCase());
+  // Strip leading # then parse integer
+  const n = parseInt(s.replace(/^#/, ""), 10);
+  return Number.isFinite(n) ? n : null;
 }
 
 /** Format the result of a reanimate / /constraint run into a Telegram reply. */
