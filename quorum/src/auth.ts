@@ -20,7 +20,23 @@ export type SessionPayload = {
   login: string;
   avatar_url: string;
   exp: number; // unix seconds
+  /** OAuth-state-only: relative path to redirect to after callback. */
+  next?: string;
 };
+
+/**
+ * Accept only same-origin relative paths. Rejects absolute URLs,
+ * protocol-relative (`//evil.com`), backslashes, and oversized values.
+ */
+function safeNextPath(raw: string | null): string | null {
+  if (!raw) return null;
+  if (raw.length > 512) return null;
+  if (!raw.startsWith("/")) return null;
+  if (raw.startsWith("//")) return null;
+  if (raw.startsWith("/\\")) return null;
+  if (raw.includes("\\")) return null;
+  return raw;
+}
 
 export type Session = {
   login: string;
@@ -190,8 +206,14 @@ export async function startOAuth(request: Request, env: Env): Promise<Response> 
   }
 
   const state = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+  const next = safeNextPath(new URL(request.url).searchParams.get("next"));
   const stateToken = await signSession(
-    { login: `__oauth_state__:${state}`, avatar_url: "", exp: Math.floor(Date.now() / 1000) + OAUTH_STATE_TTL_SECONDS },
+    {
+      login: `__oauth_state__:${state}`,
+      avatar_url: "",
+      exp: Math.floor(Date.now() / 1000) + OAUTH_STATE_TTL_SECONDS,
+      ...(next ? { next } : {}),
+    },
     env.SESSION_SIGNING_KEY,
   );
 
@@ -270,7 +292,10 @@ export async function finishOAuth(request: Request, env: Env): Promise<Response>
 
   const secure = url.protocol === "https:";
   const headers = new Headers();
-  headers.append("Location", "/");
+  // Redirect back to the page the user signed in from, if it survived the
+  // signed state round-trip. Default to `/` otherwise.
+  const next = safeNextPath(stateClaims.next ?? null) ?? "/";
+  headers.append("Location", next);
   headers.append("Set-Cookie", setCookie(SESSION_COOKIE, session, { maxAge: SESSION_TTL_SECONDS, secure }));
   headers.append("Set-Cookie", clearCookie(OAUTH_STATE_COOKIE, secure));
   return new Response(null, { status: 302, headers });

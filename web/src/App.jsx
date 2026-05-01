@@ -127,7 +127,9 @@ function Header({ total, me }) {
   const isEditor = !!me?.can_edit;
 
   const onSignIn = () => {
-    window.location.href = '/auth/github/start';
+    // Round-trip current location through OAuth so we land back here, not at /.
+    const next = window.location.pathname + window.location.search + window.location.hash;
+    window.location.href = `/auth/github/start?next=${encodeURIComponent(next)}`;
   };
   const onSignOut = async () => {
     await logout();
