@@ -20,7 +20,11 @@ Source of truth. Migrations are append-only — never `DROP COLUMN` mid-day.
 CREATE TABLE ideas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   author_id TEXT NOT NULL,
-  text TEXT NOT NULL,
+  text TEXT NOT NULL,                       -- raw /idea body, kept as legacy/source
+  name TEXT NOT NULL DEFAULT '',            -- short title, board card heading (additive, board-driven)
+  brief TEXT NOT NULL DEFAULT '',           -- one-line description shown on the card
+  long TEXT NOT NULL DEFAULT '',            -- long description shown in the editor modal
+  hours INTEGER,                            -- agent-assigned effort estimate, hours
   status TEXT NOT NULL DEFAULT 'ideating', -- ideating|validating|planning|parked|killed
   score_team REAL,
   score_resource REAL,
@@ -84,6 +88,52 @@ Reply format is plain text (Telegram MarkdownV2 escaping handled by `format.ts`)
 | `POST` | `/webhook` | Telegram secret token header | Telegram update intake |
 | `GET` | `/g/<token>` | Token in URL | Read-only HTML view (stretch) |
 | `GET` | `/healthz` | none | Liveness ping |
+| `GET` | `/api/board` | none (CORS open) | Board JSON for `web/` (see "Board API") |
+| `PATCH` | `/api/ideas/<uid>` | none (CORS open) | Edit `name` / `long` from the board UI |
+
+## Board API
+
+Lives in `api/` — a separate Cloudflare Worker fronting a Durable Object with embedded SQLite (`new_sqlite_classes`). One global instance (`default`) for the prototype; the schema and routes are shaped to fold into the per-chat `QuorumAgent` later. Frontend in `web/` consumes it.
+
+### Stage ↔ status mapping
+
+The board UI has 3 columns; SPEC has 5 statuses. The board only renders `ideating | validating | planning`; `parked` and `killed` are off-board.
+
+| Board stage  | SPEC status   |
+|--------------|---------------|
+| `bucket`     | `ideating`    |
+| `candidates` | `validating`  |
+| `selected`   | `planning`    |
+| —            | `parked`      |
+| —            | `killed`      |
+
+### `uid` (string) vs `id` (integer)
+
+The board surface uses an opaque string `uid = "qrm_" + zero-padded(id, 6)` (e.g. `qrm_000017`). Reversible. The SPEC `id INTEGER` is the source of truth — `uid` is purely a presentation/cache-key concern. Internal SPEC calls keep using the integer.
+
+### Card score (1–10)
+
+Derived, not stored. `score = round(composite × 10)` clamped to `[0, 10]` where `composite` follows the existing formula (`0.5*team + 0.4*resource + 0.1*market`, market default 0.5). Adjust SPEC weights → board score updates automatically.
+
+### Endpoints
+
+`GET /api/board` returns `{ ideas: Idea[] }` ordered by `id ASC`, restricted to board-visible statuses. The `Idea` shape:
+
+```ts
+type Idea = {
+  uid: string;       // qrm_NNNNNN
+  name: string;
+  brief: string;     // falls back to `text` if `brief` is empty
+  long: string;
+  hours: number | null;
+  score: number;     // 0–10 integer, derived
+  stage: 'bucket' | 'candidates' | 'selected';
+};
+```
+
+`PATCH /api/ideas/<uid>` accepts `{ name?: string, long?: string }`. Other fields are agent-owned and rejected. Writes append an `idea_edited` row to `events`. Response: `{ idea: Idea }`.
+
+CORS is wide-open (`*`) for the prototype — tighten to the Vercel origin before any non-demo deploy.
 
 ## Internal `QuorumAgent` methods
 
@@ -154,7 +204,7 @@ Manual transitions: `/promote`, `/park`, `/kill`. Automatic: backflow re-validat
 ## Logging contract
 
 Every state-changing call appends to `events` with:
-- `event_type`: `idea_added | idea_voted | idea_phase_change | context_changed | scored | reanimated | demoted`
+- `event_type`: `idea_added | idea_voted | idea_phase_change | context_changed | scored | reanimated | demoted | idea_edited`
 - `payload`: JSON with relevant deltas (old → new for phase changes; full score breakdown for `scored`)
 
 `/why <id>` is a SELECT on this table — don't break the contract or `/why` lies.

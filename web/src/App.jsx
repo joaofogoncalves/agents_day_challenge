@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
+import { fetchBoard, patchIdea, usingMock } from './api.js';
 
 const COLUMNS = [
   { id: 'bucket', label: 'Bucket', hint: 'raw ideas, unconverged' },
@@ -9,16 +10,14 @@ const COLUMNS = [
 export default function App() {
   const [ideas, setIdeas] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [openId, setOpenId] = useState(null);
 
   useEffect(() => {
-    fetch('/mock.json')
-      .then((r) => r.json())
-      .then((data) => {
-        setIdeas(data.ideas);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    fetchBoard()
+      .then((data) => setIdeas(data.ideas ?? []))
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
   }, []);
 
   const byStage = useMemo(() => {
@@ -30,8 +29,22 @@ export default function App() {
 
   const open = ideas.find((i) => i.uid === openId) ?? null;
 
-  const updateIdea = useCallback((uid, patch) => {
-    setIdeas((prev) => prev.map((i) => (i.uid === uid ? { ...i, ...patch } : i)));
+  // Optimistic local update + PATCH; rollback on failure.
+  const updateIdea = useCallback(async (uid, patch) => {
+    let prev;
+    setIdeas((cur) => {
+      prev = cur;
+      return cur.map((i) => (i.uid === uid ? { ...i, ...patch } : i));
+    });
+    try {
+      const res = await patchIdea(uid, patch);
+      if (res?.idea) {
+        setIdeas((cur) => cur.map((i) => (i.uid === uid ? res.idea : i)));
+      }
+    } catch (e) {
+      console.error('save failed', e);
+      if (prev) setIdeas(prev);
+    }
   }, []);
 
   return (
@@ -55,7 +68,15 @@ export default function App() {
         <span className="foot__dot" />
         <span>quorum/web · prototype · agents control the board</span>
         <span className="foot__sep">/</span>
-        <span className="foot__mute">no drag, no drop</span>
+        <span className="foot__mute">{usingMock ? 'mock data' : 'live'}</span>
+        {error && (
+          <>
+            <span className="foot__sep">/</span>
+            <span className="foot__mute" style={{ color: '#ff6a3d' }}>
+              {error}
+            </span>
+          </>
+        )}
       </footer>
 
       {open && <Editor idea={open} onClose={() => setOpenId(null)} onSave={updateIdea} />}

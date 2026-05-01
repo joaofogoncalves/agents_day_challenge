@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "quorum-api",
+  "main": "src/index.js",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "BOARD", "class_name": "BoardAgent" }
+    ]
+  },
+  // CRITICAL: must be `new_sqlite_classes`, not `new_classes`. The latter silently
+  // gives a legacy KV-backed DO with no `state.storage.sql`. See CLAUDE.md gotchas.
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["BoardAgent"] }
+  ],
+  "observability": { "enabled": true }
+}

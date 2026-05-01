@@ -10,6 +10,7 @@ Hackathon repository (Cloudflare-sponsored Agents Day, May 1 2026). The project 
 2. [`SPEC.md`](./SPEC.md) — **data + API contracts**. Always-in-sync source of truth for schema, commands, endpoints, internal Agent methods, prompt I/O shapes, scoring formula.
 3. [`team/joao.md`](./team/joao.md), [`team/rui.md`](./team/rui.md), [`team/twody7.md`](./team/twody7.md) — per-person scope, files owned, interfaces, hour-by-hour, DoD.
 4. [`web/FRONTEND.md`](./web/FRONTEND.md) — board UI need-to-knows: column stages, the `Idea` shape, what's user-editable vs. agent-owned, naming conventions. Read before touching `web/`.
+5. [`api/README.md`](./api/README.md) — the board JSON API: a Worker + DO with embedded SQLite, deployed separately from the main agent. Contract lives in `SPEC.md` "Board API".
 
 This file is a thin orientation layer on top of the above. Don't restate them here — point to them.
 

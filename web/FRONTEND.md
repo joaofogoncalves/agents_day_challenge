@@ -72,13 +72,19 @@ Click → modal. No drag, no drop, no inline edit, no context menu.
 - **Idea ids** are agent-issued, prefix `qrm_`, opaque. Treat as strings.
 - The product is **Quorum**. The board has no separate name — it's "the board" in copy.
 
+## Wiring to the API
+
+Endpoints live in `api/` (Cloudflare Worker + Durable Object SQLite). See `SPEC.md` "Board API" for the contract.
+
+- `GET /api/board` → `{ ideas: Idea[] }`
+- `PATCH /api/ideas/:uid` body `{ name?, long? }` → `{ idea: Idea }`
+
+Set `VITE_API_BASE` (e.g. `https://quorum-api.<account>.workers.dev`) in the Vercel project (or `web/.env.local` for dev). If unset, the app falls back to `/mock.json` so the UI still loads without a backend — the footer displays `mock` vs. `live` so you can tell at a glance.
+
+All API calls live in `web/src/api.js`. Save flow is **optimistic**: state updates immediately; on failure, the previous state is restored and the error logged to the console.
+
 ## Not implemented yet (intentionally)
 
-So nobody re-implements these by accident before the contract lands:
-
-- No API. Reads `public/mock.json` once on load.
-- No persistence — edits live in React state, lost on refresh.
-- No realtime — the agent moves cards in real life; the prototype doesn't refetch.
-- No auth, no per-chat scoping, no routing.
-
-When the API arrives, the touch points are: the initial fetch in `App.jsx`, the save handler `updateIdea`, and a future websocket / poll for stage transitions.
+- No realtime — the agent moves cards in real life; the prototype doesn't refetch or websocket.
+- No auth, no per-chat scoping, no routing — the API exposes a single global board.
+- No retries / queue on save failures — the optimistic rollback is fire-and-forget.
