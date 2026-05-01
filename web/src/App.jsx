@@ -34,13 +34,8 @@ export default function App() {
 
   const chat = new URLSearchParams(typeof location !== "undefined" ? location.search : "").get("chat") || "";
 
-  const handleStale = React.useCallback(() => {
-    fetchBoard(chat).catch(() => {});
-  }, [chat]);
-
-  const { ideas, activity, presence, me: meHook, connectionState } = useLiveBoard({
+  const { ideas, activity, presence, me: meHook, connectionState, dispatch } = useLiveBoard({
     chat,
-    onStaleFallback: handleStale,
   });
 
   useEffect(() => {
@@ -69,26 +64,59 @@ export default function App() {
 
   const open = ideas.find((i) => i.uid === openId) ?? null;
 
-  // Fire PATCH — the server will push an idea_edited Wire event back over WS
-  // which the reducer applies. No local optimistic mutation needed.
+  // Fire PATCH — after success, dispatch an optimistic idea_edited so the UI
+  // updates immediately. The WS broadcast will overwrite with authoritative values.
   const updateIdea = useCallback(async (uid, patch) => {
     try {
       await patchIdea(uid, patch);
+      dispatch({
+        kind: "idea_edited",
+        uid,
+        patch,
+        activity: {
+          id: -Date.now(),
+          event_kind: "idea_edited",
+          summary: "you edited " + uid,
+          by: { kind: "user", login: meHook?.login ?? "you", avatar: "" },
+          ts: Date.now(),
+          target_uid: uid,
+        },
+      });
     } catch (e) {
       console.error('save failed', e);
       setError(e.message);
     }
-  }, []);
+  }, [dispatch, meHook]);
 
-  // Fire vote — the server pushes an idea_voted Wire event back over WS.
+  // Fire vote — dispatch optimistic update first, then REST.
+  // The authoritative WS broadcast will overwrite the optimistic state.
   const toggleVote = useCallback(async (uid) => {
+    const current = ideas.find((i) => i.uid === uid);
+    if (current) {
+      const willVote = !current.voted_by_me;
+      dispatch({
+        kind: "idea_voted",
+        uid,
+        votes: current.votes + (willVote ? 1 : -1),
+        voter_key: meHook?.voter_key ?? "",
+        voted: willVote,
+        activity: {
+          id: -Date.now(),
+          event_kind: "idea_voted",
+          summary: "you " + (willVote ? "voted" : "unvoted") + " " + uid,
+          by: { kind: "user", login: meHook?.login ?? "you", avatar: "" },
+          ts: Date.now(),
+          target_uid: uid,
+        },
+      });
+    }
     try {
       await voteIdea(uid);
     } catch (e) {
       console.error('vote failed', e);
       setError(e.message);
     }
-  }, []);
+  }, [ideas, dispatch, meHook]);
 
   const isAuthed = !!me?.login;
   const canEdit = !!me?.can_edit;
