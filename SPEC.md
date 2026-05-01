@@ -21,9 +21,9 @@ CREATE TABLE ideas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   author_id TEXT NOT NULL,
   text TEXT NOT NULL,                       -- raw /idea body, kept as legacy/source
-  name TEXT NOT NULL DEFAULT '',            -- short title, board card heading (additive, board-driven)
-  brief TEXT NOT NULL DEFAULT '',           -- one-line description shown on the card
-  long TEXT NOT NULL DEFAULT '',            -- long description shown in the editor modal
+  name TEXT,                                -- short title, board card heading (nullable; falls back to text)
+  brief TEXT,                               -- one-line description shown on the card (nullable; falls back to text)
+  long TEXT,                                -- long description shown in the editor modal
   hours INTEGER,                            -- agent-assigned effort estimate, hours
   status TEXT NOT NULL DEFAULT 'ideating', -- ideating|validating|planning|parked|killed
   score_team REAL,
@@ -77,6 +77,20 @@ CREATE TABLE pending_confirmations (
   user_id TEXT PRIMARY KEY,
   action_json TEXT NOT NULL,
   expires_at INTEGER NOT NULL
+);
+
+-- Per-user vote tracking (feat/social-ranking-and-auth). PRIMARY KEY enforces
+-- one vote per (idea, voter). voter_key shapes:
+--   • "gh:<lowercased_login>" — web (GitHub OAuth) or Telegram users who have
+--     linked a GitHub account via /gh (so the same person voting on web and
+--     Telegram doesn't double-count).
+--   • "tg:<telegram_user_id>" — Telegram users without a linked GH account.
+-- Resolution: QuorumAgent.voterKeyForTelegram.
+CREATE TABLE idea_votes (
+  idea_id INTEGER NOT NULL,
+  voter_key TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (idea_id, voter_key)
 );
 ```
 
