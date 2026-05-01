@@ -111,7 +111,23 @@ export default function App() {
       });
     }
     try {
-      await voteIdea(uid);
+      const result = await voteIdea(uid);
+      // Dispatch confirmed update with server's authoritative count.
+      dispatch({
+        kind: "idea_voted",
+        uid,
+        votes: result.votes,
+        voter_key: meHook?.voter_key ?? "",
+        voted: result.voted,
+        activity: {
+          id: -Date.now(),
+          event_kind: "idea_voted",
+          summary: "you " + (result.voted ? "voted" : "unvoted") + " " + uid,
+          by: { kind: "user", login: meHook?.login ?? "you", avatar: "" },
+          ts: Date.now(),
+          target_uid: uid,
+        },
+      });
     } catch (e) {
       console.error('vote failed', e);
       setError(e.message);

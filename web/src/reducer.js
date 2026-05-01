@@ -42,6 +42,7 @@ export function reduce(state, ev) {
         return {
           ...i,
           votes: ev.votes,
+          score_votes: Math.min(ev.votes / 5, 1),
           voted_by_me: ev.voter_key === meKey ? ev.voted : i.voted_by_me,
         };
       });
