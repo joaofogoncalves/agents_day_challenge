@@ -9,6 +9,8 @@ declare global {
     TELEGRAM_BOT_TOKEN: string;
     TELEGRAM_WEBHOOK_SECRET: string;
     GITHUB_TOKEN?: string;
+    /** Telegram chat ID the board API targets when no `?chat=` override is given. */
+    DEFAULT_BOARD_CHAT?: string;
   }
 }
 

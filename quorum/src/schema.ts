@@ -44,6 +44,20 @@ export const SCHEMA = [
   )`,
 ] as const;
 
+/**
+ * Additive migrations. Run after SCHEMA on every onStart() in a try/catch
+ * (SQLite throws on duplicate column add). Append-only — never reorder.
+ *
+ * The board UI (web/) needs name/brief/long/hours. New ideas seed
+ * name=brief=text so the board renders pre-existing rows transparently.
+ */
+export const ADDITIVE_MIGRATIONS = [
+  `ALTER TABLE ideas ADD COLUMN name TEXT`,
+  `ALTER TABLE ideas ADD COLUMN brief TEXT`,
+  `ALTER TABLE ideas ADD COLUMN long TEXT`,
+  `ALTER TABLE ideas ADD COLUMN hours INTEGER`,
+] as const;
+
 export type Status =
   | "ideating"
   | "validating"
@@ -63,7 +77,43 @@ export type Idea = {
   last_validated_at: number | null;
   last_reason: string | null;
   created_at: number;
+  name: string | null;
+  brief: string | null;
+  long: string | null;
+  hours: number | null;
 };
+
+/**
+ * Idea shape for the board UI (web/FRONTEND.md). Distinct from the SQL row
+ * to keep the API stable across backend refactors.
+ */
+export type BoardIdea = {
+  uid: string;
+  name: string;
+  brief: string;
+  long: string;
+  score: number;
+  hours: number | null;
+  stage: "bucket" | "candidates" | "selected";
+};
+
+/** Status → board stage. Statuses outside the board are excluded from the API response. */
+export const STATUS_TO_STAGE: Partial<Record<Status, BoardIdea["stage"]>> = {
+  ideating: "bucket",
+  validating: "candidates",
+  planning: "selected",
+};
+
+export const BOARD_STATUSES: Status[] = ["ideating", "validating", "planning"];
+
+/** "qrm_000123" ↔ 123. Opaque on the wire, reversible on the server. */
+export function uidFromId(id: number): string {
+  return `qrm_${String(id).padStart(6, "0")}`;
+}
+export function idFromUid(uid: string): number | null {
+  const m = /^qrm_0*(\d+)$/.exec(uid);
+  return m ? parseInt(m[1] ?? "", 10) : null;
+}
 
 export type Member = {
   user_id: string;

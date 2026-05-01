@@ -12,7 +12,19 @@ import { Agent } from "agents";
 import { webhookCallback } from "grammy";
 import type { Bot } from "grammy";
 import { createBot } from "./telegram";
-import { SCHEMA, type EventType, type Idea, type Member, type Status } from "./schema";
+import {
+  ADDITIVE_MIGRATIONS,
+  BOARD_STATUSES,
+  SCHEMA,
+  STATUS_TO_STAGE,
+  type BoardIdea,
+  type EventType,
+  type Idea,
+  type Member,
+  type Status,
+  idFromUid,
+  uidFromId,
+} from "./schema";
 import { composite, MARKET_PLACEHOLDER } from "./scoring";
 import { reanimate as runReanimate, type ReanimateResult } from "./backflow";
 import { complete, type ChatMessage } from "./llm";
@@ -29,14 +41,51 @@ export class QuorumAgent extends Agent<Env> {
     for (const stmt of SCHEMA) {
       this.sql([stmt] as unknown as TemplateStringsArray);
     }
+    // Append-only migrations. SQLite throws on duplicate column add — that's
+    // the signal it already ran on this DO instance.
+    for (const stmt of ADDITIVE_MIGRATIONS) {
+      try {
+        this.sql([stmt] as unknown as TemplateStringsArray);
+      } catch {
+        /* already applied */
+      }
+    }
   }
 
   async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
+
     if (url.pathname === "/onUpdate" && request.method === "POST") {
       const handle = webhookCallback(this.getBot(), "cloudflare-mod");
       return handle(request);
     }
+
+    // Board API — proxied here from src/index.ts after chat-id resolution.
+    if (url.pathname === "/board" && request.method === "GET") {
+      return jsonResponse({ ideas: this.getBoard() });
+    }
+
+    if (url.pathname.startsWith("/board/ideas/") && request.method === "PATCH") {
+      const uid = decodeURIComponent(url.pathname.slice("/board/ideas/".length));
+      const id = idFromUid(uid);
+      if (id == null) return jsonResponse({ error: "invalid uid" }, 400);
+      let body: { name?: unknown; long?: unknown };
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: "invalid json" }, 400);
+      }
+      const patch: { name?: string; long?: string } = {};
+      if (typeof body.name === "string") patch.name = body.name;
+      if (typeof body.long === "string") patch.long = body.long;
+      if (Object.keys(patch).length === 0) {
+        return jsonResponse({ error: "nothing to update" }, 400);
+      }
+      const updated = this.updateIdea(id, patch);
+      if (!updated) return jsonResponse({ error: "not found" }, 404);
+      return jsonResponse({ idea: updated });
+    }
+
     return new Response("not found", { status: 404 });
   }
 
@@ -51,14 +100,65 @@ export class QuorumAgent extends Agent<Env> {
 
   addIdea(text: string, authorId: string): { id: number } {
     const now = Date.now();
+    // Seed name/brief from `text` so the board UI has something to render
+    // before the user (or a future LLM pass) refines them.
     const rows = this.sql<{ id: number }>`
-      INSERT INTO ideas (author_id, text, created_at)
-      VALUES (${authorId}, ${text}, ${now})
+      INSERT INTO ideas (author_id, text, name, brief, created_at)
+      VALUES (${authorId}, ${text}, ${text}, ${text}, ${now})
       RETURNING id
     `;
     const id = rows[0]!.id;
     this.appendEvent(id, "idea_added", { text, author_id: authorId });
     return { id };
+  }
+
+  // ── Board API (web/) ─────────────────────────────────────────────
+
+  /** Read-only projection of live ideas for the board UI. */
+  getBoard(): BoardIdea[] {
+    const rows = this.sql<Idea>`
+      SELECT * FROM ideas
+      WHERE status IN ('ideating','validating','planning')
+      ORDER BY id ASC
+    `;
+    void BOARD_STATUSES;
+    return rows
+      .map((row) => this.toBoardIdea(row))
+      .filter((b): b is BoardIdea => b !== null);
+  }
+
+  /** PATCH /api/ideas/:uid — only name and long are user-writable per FRONTEND.md. */
+  updateIdea(id: number, patch: { name?: string; long?: string }): BoardIdea | null {
+    const existing = this.sql<Idea>`SELECT * FROM ideas WHERE id = ${id}`;
+    if (existing.length === 0) return null;
+    const cleanedName = patch.name?.trim().slice(0, 200);
+    const cleanedLong = patch.long?.slice(0, 5000);
+    if (cleanedName == null && cleanedLong == null) return this.toBoardIdea(existing[0]!);
+    if (cleanedName != null && cleanedLong != null) {
+      this.sql`UPDATE ideas SET name = ${cleanedName}, long = ${cleanedLong} WHERE id = ${id}`;
+    } else if (cleanedName != null) {
+      this.sql`UPDATE ideas SET name = ${cleanedName} WHERE id = ${id}`;
+    } else if (cleanedLong != null) {
+      this.sql`UPDATE ideas SET long = ${cleanedLong} WHERE id = ${id}`;
+    }
+    this.appendEvent(id, "idea_added", { edited: patch });
+    const after = this.sql<Idea>`SELECT * FROM ideas WHERE id = ${id}`;
+    return this.toBoardIdea(after[0]!);
+  }
+
+  private toBoardIdea(row: Idea): BoardIdea | null {
+    const stage = STATUS_TO_STAGE[row.status];
+    if (!stage) return null;
+    const score = composite({ team: row.score_team, resource: row.score_resource });
+    return {
+      uid: uidFromId(row.id),
+      name: row.name ?? row.text ?? "",
+      brief: row.brief ?? row.text ?? "",
+      long: row.long ?? "",
+      score: Math.max(0, Math.min(10, Math.round(score * 10))),
+      hours: row.hours,
+      stage,
+    };
   }
 
   voteIdea(id: number, _userId: string): { votes: number } | null {
@@ -302,4 +402,11 @@ function safeJson<T>(s: string | null): T | null {
 
 function dedupe<T>(xs: T[]): T[] {
   return [...new Set(xs)];
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+  });
 }

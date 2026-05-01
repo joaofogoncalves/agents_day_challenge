@@ -1,13 +1,16 @@
 /**
  * Worker entry. Routes HTTP traffic to the right QuorumAgent DO.
  *
- * - POST /webhook    Telegram update intake (signature-checked, then forwarded by chat ID)
- * - GET  /healthz    Liveness ping
- * - GET  /g/<token>  Read-only HTML view (stretch — Rui)
+ * - POST /webhook              Telegram update intake (signature-checked, forwarded by chat ID)
+ * - GET  /api/board            Board view of one chat's ideas (web/ UI)
+ * - PATCH /api/ideas/:uid      Edit name/long on an idea
+ * - GET  /healthz              Liveness ping
  *
- * The Telegram secret check happens here (at the edge) so invalid
- * traffic never reaches a DO. Once authenticated, the chat ID from
- * the update body keys the DO (one DO per Telegram chat).
+ * Telegram secret check happens at the edge so invalid traffic never reaches
+ * a DO. The chat ID keys the DO (one DO per Telegram chat).
+ *
+ * The board API targets a single "default" chat, configurable via the
+ * DEFAULT_BOARD_CHAT var in wrangler.jsonc, or `?chat=<id>` per request.
  */
 
 import { QuorumAgent } from "./agent";
@@ -32,12 +35,37 @@ function extractChatId(update: TelegramUpdate): string | null {
   return id == null ? null : String(id);
 }
 
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, PATCH, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Max-Age": "86400",
+};
+
+function corsJson(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json; charset=utf-8", ...CORS_HEADERS },
+  });
+}
+
+function resolveBoardChat(env: Env, url: URL): string | null {
+  const fromQuery = url.searchParams.get("chat");
+  if (fromQuery) return fromQuery;
+  return env.DEFAULT_BOARD_CHAT ?? null;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    // CORS preflight for the board API.
+    if (request.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
+
     if (url.pathname === "/healthz") {
-      return new Response("ok", { status: 200 });
+      return new Response("ok", { status: 200, headers: CORS_HEADERS });
     }
 
     if (url.pathname === "/webhook" && request.method === "POST") {
@@ -70,8 +98,33 @@ export default {
       );
     }
 
+    // ── Board API (web/) ─────────────────────────────────────────────
+
+    if (url.pathname === "/api/board" && request.method === "GET") {
+      const chat = resolveBoardChat(env, url);
+      if (!chat) return corsJson({ error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
+      const id = env.QuorumAgent.idFromName(chat);
+      const stub = env.QuorumAgent.get(id);
+      return stub.fetch(new Request(new URL("/board", request.url).toString()));
+    }
+
+    if (url.pathname.startsWith("/api/ideas/") && request.method === "PATCH") {
+      const uid = decodeURIComponent(url.pathname.slice("/api/ideas/".length));
+      const chat = resolveBoardChat(env, url);
+      if (!chat) return corsJson({ error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
+      const id = env.QuorumAgent.idFromName(chat);
+      const stub = env.QuorumAgent.get(id);
+      return stub.fetch(
+        new Request(new URL(`/board/ideas/${encodeURIComponent(uid)}`, request.url).toString(), {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: await request.text(),
+        }),
+      );
+    }
+
     if (url.pathname.startsWith("/g/")) {
-      // Stretch: token-keyed read-only view (Rui).
+      // Stretch: token-keyed read-only HTML view (Rui).
       return new Response("not implemented", { status: 501 });
     }
 

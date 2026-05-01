@@ -95,7 +95,11 @@ Reply format is plain text (Telegram MarkdownV2 escaping handled by `format.ts`)
 
 ## Board API
 
-Lives in `api/` — a separate Cloudflare Worker fronting a Durable Object with embedded SQLite (`new_sqlite_classes`). One global instance (`default`) for the prototype; the schema and routes are shaped to fold into the per-chat `QuorumAgent` later. Frontend in `web/` consumes it.
+Lives in `quorum/` (the same Worker that handles the Telegram webhook). One DO per Telegram chat — the same `QuorumAgent` that owns ideas state. The standalone `api/` Worker is **superseded**: `web/` should point `VITE_API_BASE` at `https://quorum.joao-f-o-goncalves.workers.dev`. Frontend in `web/` consumes it.
+
+### Chat resolution
+
+`?chat=<telegram_chat_id>` query param targets a specific chat's DO. If absent, the worker falls back to the `DEFAULT_BOARD_CHAT` var in `wrangler.jsonc` (currently `-5120669057`, the team coord group). For the demo, point this at the demo group's chat ID.
 
 ### Stage ↔ status mapping
 
@@ -135,7 +139,11 @@ type Idea = {
 
 `PATCH /api/ideas/<uid>` accepts `{ name?: string, long?: string }`. Other fields are agent-owned and rejected. Writes append an `idea_edited` row to `events`. Response: `{ idea: Idea }`.
 
-CORS is wide-open (`*`) for the prototype — tighten to the Vercel origin before any non-demo deploy.
+CORS is wide-open (`*`) for the prototype — tighten to the Vercel/Pages origin before any non-demo deploy.
+
+### Schema additions
+
+The board needs `name`, `brief`, `long`, `hours` on `ideas`. These are append-only `ALTER TABLE ADD COLUMN` migrations in `quorum/src/schema.ts → ADDITIVE_MIGRATIONS`, run idempotently in `onStart()`. Existing rows (created before the migration) render with `name = brief = text`.
 
 ## Internal `QuorumAgent` methods
 
