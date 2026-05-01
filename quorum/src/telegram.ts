@@ -296,17 +296,43 @@ function parseGithubHandle(input: string): string | null {
  *   • the chat is private (1:1 DM with the bot)
  *   • the message text contains @<botUsername>
  *   • the message is a direct reply to one of the bot's previous messages
+ *   • the message contains an @quor[u/o]m_bot lookalike (typo tolerance —
+ *     @BotFather registered "quorom_bot" but users naturally type "quorum_bot")
+ *   • the message has any text_mention entity pointing at the bot
  * Anything else is overheard chatter — observed but not acted upon.
  */
 function isAddressed(ctx: Context): boolean {
   if (ctx.chat?.type === "private") return true;
+
   const text = ctx.message?.text ?? "";
   const me = ctx.me;
+
+  // Strict @-mention via username
   if (me?.username && text.toLowerCase().includes(`@${me.username.toLowerCase()}`)) {
     return true;
   }
+
+  // Reply-to-bot
   const replyTo = ctx.message?.reply_to_message?.from;
   if (me?.id && replyTo?.id === me.id) return true;
+
+  // Typo-tolerant match — the BotFather name is "quorom_bot" (one missing u)
+  // but the product name is "Quorum" so users will keep typing both. Accept
+  // either spelling.
+  if (/@quor[uo]m_bot\b/i.test(text)) return true;
+
+  // text_mention entities (used for users without @-username, e.g. by ID)
+  const entities = ctx.message?.entities ?? [];
+  for (const e of entities) {
+    if (
+      e.type === "text_mention" &&
+      "user" in e &&
+      (e as { user?: { id?: number } }).user?.id === me?.id
+    ) {
+      return true;
+    }
+  }
+
   return false;
 }
 
