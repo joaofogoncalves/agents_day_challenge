@@ -155,7 +155,13 @@ export default {
       return stub.fetch(
         new Request(new URL("/onUpdate", request.url).toString(), {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            // The DO is keyed by an opaque hash of chatId, not the ID itself.
+            // Forward the raw chat ID so the agent can stash it for the
+            // stall-nudge cron's out-of-band sendMessage.
+            "x-quorum-chat": chatId,
+          },
           body,
         }),
       );

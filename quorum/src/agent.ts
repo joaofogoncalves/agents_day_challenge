@@ -41,7 +41,7 @@ export class QuorumAgent extends Agent<Env> {
     return this.env;
   }
 
-  onStart(): void {
+  async onStart(): Promise<void> {
     for (const stmt of SCHEMA) {
       this.sql([stmt] as unknown as TemplateStringsArray);
     }
@@ -54,12 +54,23 @@ export class QuorumAgent extends Agent<Env> {
         /* already applied */
       }
     }
+    // Daily stall-nudge cron. scheduleEvery is idempotent on
+    // (callback, intervalSeconds, payload), so onStart firing on every DO wake
+    // doesn't pile up duplicate schedules. The tick itself is a no-op if the
+    // chat ID isn't known yet (first webhook hit captures it) or no parked
+    // ideas are eligible.
+    await this.scheduleEvery(60 * 60 * 24, "stallNudgeTick");
   }
 
   async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/onUpdate" && request.method === "POST") {
+      // Stash the Telegram chat ID on first hit so the stall-nudge cron knows
+      // where to send. Forwarded from src/index.ts via x-quorum-chat header
+      // (the DO is keyed by an opaque hash, not the chat ID itself).
+      const chatHeader = request.headers.get("x-quorum-chat");
+      if (chatHeader) this.rememberChatId(chatHeader);
       const handle = webhookCallback(this.getBot(), "cloudflare-mod");
       // Telegram retries on non-2xx — but our reply happens via the Bot API
       // (a separate outbound call). If sendMessage fails we don't want
@@ -405,6 +416,68 @@ export class QuorumAgent extends Agent<Env> {
     `;
     this.appendEvent(null, "context_changed", { board_name: cleaned });
     return cleaned;
+  }
+
+  // ── Chat-id capture (for out-of-band sends from cron) ──────────
+
+  /**
+   * Stash the Telegram chat ID this DO is bound to. Called on every webhook
+   * hit; UPSERT keeps it cheap. We need this because the DO is keyed by an
+   * opaque hash of the chat ID, not the ID itself, so the cron callback has
+   * no other way to address the chat.
+   */
+  private rememberChatId(chatId: string): void {
+    const now = Date.now();
+    this.sql`
+      INSERT INTO context (key, value, updated_at)
+      VALUES ('chat_id', ${chatId}, ${now})
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `;
+  }
+
+  /** Numeric Telegram chat ID, or null until the first webhook hit lands. */
+  private getChatId(): string | null {
+    const rows = this.sql<{ value: string }>`
+      SELECT value FROM context WHERE key = 'chat_id'
+    `;
+    return rows[0]?.value ?? null;
+  }
+
+  // ── Stall-nudge cron ─────────────────────────────────────────────
+
+  /**
+   * Daily tick. Picks one idea that's been parked for ≥ 7 days and posts a
+   * gentle nudge to the chat ("still parked? kill, revive, or leave?"). No-op
+   * if we don't know the chat yet, or if no eligible parked ideas exist. A
+   * single nudge per tick keeps it from spamming the chat on quiet boards.
+   *
+   * Wired by `onStart()` via `scheduleEvery(86400, "stallNudgeTick")`. The
+   * callback is idempotent on (callback, intervalSeconds, payload), so the
+   * schedule survives DO wakes without piling up duplicates.
+   */
+  async stallNudgeTick(): Promise<void> {
+    const chatId = this.getChatId();
+    if (!chatId) return;
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    // Oldest first — the longest-stuck idea is the most worth surfacing.
+    const rows = this.sql<{ id: number; name: string | null; text: string }>`
+      SELECT id, name, text FROM ideas
+      WHERE status = 'parked' AND created_at < ${sevenDaysAgo}
+      ORDER BY created_at ASC
+      LIMIT 1
+    `;
+    const idea = rows[0];
+    if (!idea) return;
+    const title = (idea.name?.trim() || idea.text).slice(0, 80);
+    const message = `🥀 #${idea.id} "${title}" has been parked for over a week. Still parked? Reply \`kill #${idea.id}\`, \`promote #${idea.id}\` to revive, or leave it as-is.`;
+    try {
+      await this.getBot().api.sendMessage(chatId, message);
+      this.appendEvent(idea.id, "stall_nudge", { chat_id: chatId });
+    } catch (e) {
+      // Don't crash the schedule on a transient Telegram error; it'll fire
+      // again tomorrow on the next tick.
+      console.error("stallNudgeTick: sendMessage failed:", e);
+    }
   }
 
   // ── Context ──────────────────────────────────────────────────────

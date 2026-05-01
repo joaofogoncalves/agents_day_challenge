@@ -206,7 +206,8 @@ export type EventType =
   | "idea_edited"
   | "observed"
   | "router_call"
-  | "injection_blocked";
+  | "injection_blocked"
+  | "stall_nudge";
 
 export type Message = {
   id: number;

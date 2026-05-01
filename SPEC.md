@@ -305,7 +305,17 @@ Manual transitions: `/promote`, `/park`, `/kill`. Automatic: backflow re-validat
 ## Logging contract
 
 Every state-changing call appends to `events` with:
-- `event_type`: `idea_added | idea_voted | idea_phase_change | context_changed | scored | reanimated | demoted | idea_edited`
-- `payload`: JSON with relevant deltas (old → new for phase changes; full score breakdown for `scored`)
+- `event_type`: `idea_added | idea_voted | idea_phase_change | context_changed | scored | reanimated | demoted | idea_edited | observed | router_call | injection_blocked | stall_nudge`
+- `payload`: JSON with relevant deltas (old → new for phase changes; full score breakdown for `scored`; `{ chat_id }` for `stall_nudge`)
 
 `/why <id>` is a SELECT on this table — don't break the contract or `/why` lies.
+
+## Scheduled tasks
+
+| Schedule | Method | Cadence | Behaviour |
+|---|---|---|---|
+| `stallNudgeTick` | `QuorumAgent.stallNudgeTick` | every 24h (idempotent `scheduleEvery`) | Picks one parked idea older than 7 days and posts a "still parked? kill, revive, or leave?" nudge to the chat. No-op if `context.chat_id` isn't set or no eligible idea. Logs `stall_nudge`. |
+
+The chat ID is captured in `context.chat_id` on every Telegram webhook hit
+(forwarded from the Worker via `x-quorum-chat` header). The cron stays a
+no-op until the first message arrives in a fresh chat.
