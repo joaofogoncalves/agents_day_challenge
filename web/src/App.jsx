@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
+import React from 'react';
 import {
   fetchBoard,
   fetchMe,
@@ -9,6 +10,10 @@ import {
   clearConstraints,
   usingMock,
 } from './api.js';
+import { useLiveBoard } from './useLiveBoard.js';
+import { ConnectionDot } from './components/ConnectionDot.jsx';
+import { PresencePile } from './components/PresencePile.jsx';
+import { ActivityRail } from './components/ActivityRail.jsx';
 
 const COLUMNS = [
   { id: 'bucket', label: 'Bucket', hint: 'raw ideas, unconverged' },
@@ -17,7 +22,6 @@ const COLUMNS = [
 ];
 
 export default function App() {
-  const [ideas, setIdeas] = useState([]);
   const [boardName, setBoardName] = useState(null);
   const [deadline, setDeadline] = useState(null);
   const [team, setTeam] = useState([]);
@@ -25,22 +29,36 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [openId, setOpenId] = useState(null);
-  // me = {} when anonymous, { login, avatar_url, can_vote, can_edit } when signed in.
-  const [me, setMe] = useState(null);
+  // meRest = full /api/me shape including avatar_url, used for the auth widget.
+  const [meRest, setMeRest] = useState(null);
+
+  const chat = new URLSearchParams(typeof location !== "undefined" ? location.search : "").get("chat") || "";
+
+  const handleStale = React.useCallback(() => {
+    fetchBoard(chat).catch(() => {});
+  }, [chat]);
+
+  const { ideas, activity, presence, me: meHook, connectionState } = useLiveBoard({
+    chat,
+    onStaleFallback: handleStale,
+  });
 
   useEffect(() => {
-    Promise.all([fetchBoard(), fetchMe()])
+    Promise.all([fetchBoard(chat), fetchMe()])
       .then(([board, who]) => {
-        setIdeas(board.ideas ?? []);
         setBoardName(board.name ?? null);
         setDeadline(board.deadline ?? null);
         setTeam(board.team ?? []);
         setContext(board.context ?? []);
-        setMe(who);
+        setMeRest(who);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [chat]);
+
+  // me for the auth widget uses the REST result (has avatar_url); for permissions
+  // we prefer the hook's me when available (has can_edit, can_vote).
+  const me = meHook ?? meRest;
 
   const byStage = useMemo(() => {
     const map = { bucket: [], candidates: [], selected: [] };
@@ -51,50 +69,24 @@ export default function App() {
 
   const open = ideas.find((i) => i.uid === openId) ?? null;
 
-  // Optimistic local update + PATCH; rollback on failure.
+  // Fire PATCH — the server will push an idea_edited Wire event back over WS
+  // which the reducer applies. No local optimistic mutation needed.
   const updateIdea = useCallback(async (uid, patch) => {
-    let prev;
-    setIdeas((cur) => {
-      prev = cur;
-      return cur.map((i) => (i.uid === uid ? { ...i, ...patch } : i));
-    });
     try {
-      const res = await patchIdea(uid, patch);
-      if (res?.idea) {
-        setIdeas((cur) => cur.map((i) => (i.uid === uid ? res.idea : i)));
-      }
+      await patchIdea(uid, patch);
     } catch (e) {
       console.error('save failed', e);
       setError(e.message);
-      if (prev) setIdeas(prev);
     }
   }, []);
 
-  // Optimistic toggle on the karma button. If the server rejects (e.g. session
-  // expired), roll back the local state.
+  // Fire vote — the server pushes an idea_voted Wire event back over WS.
   const toggleVote = useCallback(async (uid) => {
-    let prev;
-    setIdeas((cur) => {
-      prev = cur;
-      return cur.map((i) => {
-        if (i.uid !== uid) return i;
-        const newVotes = (i.votes || 0) + (i.voted_by_me ? -1 : 1);
-        return { ...i, voted_by_me: !i.voted_by_me, votes: newVotes, score_votes: Math.min(newVotes / 5, 1) };
-      });
-    });
     try {
-      const res = await voteIdea(uid);
-      setIdeas((cur) =>
-        cur.map((i) =>
-          i.uid === uid
-            ? { ...i, votes: res.votes, voted_by_me: res.voted, score_votes: Math.min(res.votes / 5, 1) }
-            : i,
-        ),
-      );
+      await voteIdea(uid);
     } catch (e) {
       console.error('vote failed', e);
       setError(e.message);
-      if (prev) setIdeas(prev);
     }
   }, []);
 
@@ -136,10 +128,13 @@ export default function App() {
       <Header
         total={ideas.length}
         me={me}
+        meRest={meRest}
         boardName={boardName}
         deadline={deadline}
         canEdit={canEdit}
         onSaveDeadline={saveDeadline}
+        connectionState={connectionState}
+        presence={presence}
       />
 
       <main className="body">
@@ -150,20 +145,23 @@ export default function App() {
           canEdit={canEdit}
           onClearConstraints={clearAllConstraints}
         />
-        <section className="board">
-          {COLUMNS.map((col, idx) => (
-            <Column
-              key={col.id}
-              index={idx}
-              column={col}
-              ideas={byStage[col.id]}
-              loading={loading}
-              onOpen={setOpenId}
-              onVote={canVote ? toggleVote : null}
-              isAuthed={isAuthed}
-            />
-          ))}
-        </section>
+        <main className="board-with-rail">
+          <section className="board">
+            {COLUMNS.map((col, idx) => (
+              <Column
+                key={col.id}
+                index={idx}
+                column={col}
+                ideas={byStage[col.id]}
+                loading={loading}
+                onOpen={setOpenId}
+                onVote={canVote ? toggleVote : null}
+                isAuthed={isAuthed}
+              />
+            ))}
+          </section>
+          <ActivityRail activity={activity} />
+        </main>
       </main>
 
       <footer className="foot">
@@ -193,9 +191,11 @@ export default function App() {
   );
 }
 
-function Header({ total, me, boardName, deadline, canEdit, onSaveDeadline }) {
+function Header({ total, me, meRest, boardName, deadline, canEdit, onSaveDeadline, connectionState, presence }) {
   const isAuthed = !!me?.login;
   const isEditor = !!me?.can_edit;
+  // avatar_url only comes from the REST /api/me response (hook me doesn't include it).
+  const avatarUrl = meRest?.avatar_url ?? me?.avatar_url;
 
   const onSignIn = () => {
     // Round-trip current location through OAuth so we land back here, not at /.
@@ -230,10 +230,12 @@ function Header({ total, me, boardName, deadline, canEdit, onSaveDeadline }) {
         <span className="head__count">
           <em>{String(total).padStart(2, '0')}</em> ideas in flight
         </span>
+        <ConnectionDot state={connectionState} />
+        <PresencePile presence={presence} />
         <span className="head__sep" />
         {usingMock ? null : isAuthed ? (
           <div className="auth">
-            {me.avatar_url && <img className="auth__avatar" src={me.avatar_url} alt="" />}
+            {avatarUrl && <img className="auth__avatar" src={avatarUrl} alt="" />}
             <span className="auth__login">@{me.login}</span>
             <span className={`auth__role ${isEditor ? 'auth__role--editor' : ''}`}>
               {isEditor ? 'editor' : 'viewer · vote'}
