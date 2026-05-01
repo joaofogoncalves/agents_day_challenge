@@ -59,10 +59,9 @@ jobs:
           SUBJ=$(printf '%s' "$SUBJECT" | head -n1)
           STAT=$(git diff --shortstat HEAD~1 HEAD 2>/dev/null | sed 's/^ *//' || echo "(no diff)")
           FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | head -5 || echo "")
-          MORE=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | wc -l | tr -d ' ' || echo 0)
-          if [ "$MORE" -gt 5 ]; then
-            FILES="${FILES}
-... and $((MORE - 5)) more"
+          TOTAL=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | wc -l | tr -d ' ' || echo 0)
+          if [ "$TOTAL" -gt 5 ]; then
+            FILES=$(printf '%s\n... and %d more' "$FILES" "$((TOTAL - 5))")
           fi
 
           TEXT=$(printf '[Quorum repo] %s pushed to main\n\n%s\n\n%s\n\n%s\n\n%s  %s' \
