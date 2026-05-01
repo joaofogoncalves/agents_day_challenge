@@ -145,7 +145,7 @@ export default function App() {
           canEdit={canEdit}
           onClearConstraints={clearAllConstraints}
         />
-        <main className="board-with-rail">
+        <div className="board-with-rail">
           <section className="board">
             {COLUMNS.map((col, idx) => (
               <Column
@@ -161,7 +161,7 @@ export default function App() {
             ))}
           </section>
           <ActivityRail activity={activity} />
-        </main>
+        </div>
       </main>
 
       <footer className="foot">
