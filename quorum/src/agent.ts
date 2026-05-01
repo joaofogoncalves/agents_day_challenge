@@ -27,7 +27,7 @@ import {
   idFromUid,
   uidFromId,
 } from "./schema";
-import { composite, MARKET_PLACEHOLDER } from "./scoring";
+import { composite, MARKET_PLACEHOLDER, voteFit } from "./scoring";
 import { reanimate as runReanimate, type ReanimateResult } from "./backflow";
 import { complete, loadPrompt, parseJson, type ChatMessage } from "./llm";
 import scoringPrompt from "../prompts/scoring.md";
@@ -319,7 +319,8 @@ export class QuorumAgent extends Agent<Env> {
   private toBoardIdea(row: Idea, votedByMe: boolean): BoardIdea | null {
     const stage = STATUS_TO_STAGE[row.status];
     if (!stage) return null;
-    const score = composite({ team: row.score_team, resource: row.score_resource });
+    const votes = row.votes ?? 0;
+    const score = composite({ team: row.score_team, resource: row.score_resource, votes });
     return {
       uid: uidFromId(row.id),
       name: row.name ?? row.text ?? "",
@@ -328,11 +329,11 @@ export class QuorumAgent extends Agent<Env> {
       score: Math.max(0, Math.min(10, Math.round(score * 10))),
       score_team: row.score_team,
       score_resource: row.score_resource,
-      score_market: row.score_market ?? MARKET_PLACEHOLDER,
+      score_votes: voteFit(votes),
       score_reason: row.last_reason ?? null,
       hours: row.hours,
       stage,
-      votes: row.votes ?? 0,
+      votes,
       voted_by_me: votedByMe,
     };
   }
@@ -409,8 +410,8 @@ export class QuorumAgent extends Agent<Env> {
       WHERE idea_id = ${id}
       ORDER BY id ASC
     `;
-    const score = composite({ team: i.score_team, resource: i.score_resource });
-    const head = `#${id} [${i.status}] composite=${score.toFixed(2)} (team=${i.score_team ?? "—"} resource=${i.score_resource ?? "—"})`;
+    const score = composite({ team: i.score_team, resource: i.score_resource, votes: i.votes });
+    const head = `#${id} [${i.status}] composite=${score.toFixed(2)} (team=${i.score_team ?? "—"} resource=${i.score_resource ?? "—"} votes=${i.votes ?? 0})`;
     const reason = i.last_reason ? `Reason: ${i.last_reason}` : "";
     const audit = events
       .map((e) => `  • ${new Date(e.created_at).toISOString()}  ${e.event_type}  ${e.payload}`)
@@ -635,7 +636,7 @@ export class QuorumAgent extends Agent<Env> {
 
   async validateIdea(
     id: number,
-  ): Promise<{ team: number; resource: number; market: number; reason: string }> {
+  ): Promise<{ team: number; resource: number; market: number; votes: number; reason: string }> {
     const ideaRows = this.sql<Idea>`SELECT * FROM ideas WHERE id = ${id}`;
     if (ideaRows.length === 0) {
       throw new Error(`idea ${id} not found`);
@@ -703,7 +704,7 @@ export class QuorumAgent extends Agent<Env> {
       reason,
       required_skills: parsed?.required_skills ?? [],
     });
-    return { team, resource, market, reason };
+    return { team, resource, market, votes: idea.votes ?? 0, reason };
   }
 
   async reanimate(constraint: string): Promise<ReanimateResult> {

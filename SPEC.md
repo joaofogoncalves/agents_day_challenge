@@ -28,7 +28,7 @@ CREATE TABLE ideas (
   status TEXT NOT NULL DEFAULT 'ideating', -- ideating|validating|planning|parked|killed
   score_team REAL,
   score_resource REAL,
-  score_market REAL,        -- placeholder column, ungated for now
+  score_market REAL,        -- kept for additive-migration policy; not used in composite since votes replaced it
   votes INTEGER DEFAULT 0,
   last_validated_at INTEGER,
   last_reason TEXT,
@@ -224,7 +224,7 @@ type Idea = {
   score: number;            // 0–10 integer, derived from composite
   score_team: number | null;     // 0–1 raw fit, null until validated
   score_resource: number | null; // 0–1 raw fit, null until validated
-  score_market: number;          // 0–1, currently constant 0.5
+  score_votes: number;           // 0–1, voteFit(votes) = min(votes / VOTE_SATURATION, 1), VOTE_SATURATION=5
   score_reason: string | null;   // last_reason from the most recent scoring
   stage: 'bucket' | 'candidates' | 'selected';
   votes: number;
@@ -232,7 +232,7 @@ type Idea = {
 };
 ```
 
-The `score_*` fields back the in-card "click the score to see the breakdown" UI in `web/`. The composite score the model assigns is the same `composite = 0.5*team + 0.4*resource + 0.1*market_placeholder` formula scored to 0–10; the per-fit values are exposed so the UI can render a progress bar per category. `score_reason` is the LLM's one-sentence rationale (≤150 chars, see `prompts/scoring.md`).
+The `score_*` fields back the in-card "click the score to see the breakdown" UI in `web/`. The composite score is `composite = 0.5*team + 0.4*resource + 0.1*voteFit(votes)` scaled to 0–10; the per-fit values are exposed so the UI can render a progress bar per category. `score_reason` is the LLM's one-sentence rationale (≤150 chars, see `prompts/scoring.md`).
 
 `PATCH /api/ideas/<uid>` accepts `{ name?: string, long?: string }`. Other fields are agent-owned and rejected. Writes append an `idea_edited` row to `events`. Response: `{ idea: Idea }`.
 
@@ -308,10 +308,11 @@ Each prompt has a strict input shape and JSON output schema. **Don't free-form r
 ## Composite scoring
 
 ```
-composite = 0.5 × team_fit + 0.4 × resource_fit + 0.1 × market_placeholder
+composite = 0.5 × team_fit + 0.4 × resource_fit + 0.1 × voteFit(votes)
+voteFit(v) = min(v / VOTE_SATURATION, 1)   // VOTE_SATURATION = 5
 ```
 
-Weights sum to 1.0. `market_placeholder` is constant `0.5` until we wire the market signal. **Never tune weights without updating SPEC and pinging the team in chat.**
+Weights sum to 1.0. Net effect: 0 votes → −0.05 vs baseline; ≥5 votes → +0.05. **Never tune weights without updating SPEC and pinging the team in chat.**
 
 Threshold for auto-promotion `ideating → validating`: composite ≥ 0.70 AND votes ≥ 1.
 Threshold for backflow reanimation `parked|killed → ideating`: new composite ≥ 0.65 under updated context.

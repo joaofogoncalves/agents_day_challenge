@@ -1,24 +1,38 @@
 /**
  * Composite scoring math. Formula in SPEC.md.
  *
- * composite = 0.5 * team_fit + 0.4 * resource_fit + 0.1 * market_placeholder
+ * composite = 0.5 * team_fit + 0.4 * resource_fit + 0.1 * voteFit(votes)
  *
- * Weights sum to 1.0. market_placeholder is a constant 0.5 until we
- * wire a market signal. NEVER tune weights without updating SPEC and
+ * Weights sum to 1.0. The third term used to be a constant 0.5 placeholder
+ * (market). With per-user voting now wired (idea_votes table, /vote slash,
+ * +1 #N regex, board vote button), votes are a real signal — so the third
+ * slot now carries that. NEVER tune weights without updating SPEC and
  * pinging the team in chat.
  */
 
+/** Number of votes at which voteFit saturates to 1.0. Headroom past the
+ *  3-person core team for cross-platform votes (web GH-auth + telegram). */
+export const VOTE_SATURATION = 5;
+
+/** Vestigial constant — score_market column is still written by the legacy
+ *  scoring path until that path is cleaned up. No longer in composite. */
 export const MARKET_PLACEHOLDER = 0.5;
+
+/** Saturating-linear mapping from raw vote count → [0, 1]. */
+export function voteFit(votes: number | null | undefined): number {
+  const v = Math.max(0, votes ?? 0);
+  return Math.min(v / VOTE_SATURATION, 1);
+}
 
 export function composite(input: {
   team: number | null;
   resource: number | null;
-  market?: number | null;
+  votes?: number | null;
 }): number {
   const team = clamp(input.team ?? 0);
   const resource = clamp(input.resource ?? 0);
-  const market = clamp(input.market ?? MARKET_PLACEHOLDER);
-  return 0.5 * team + 0.4 * resource + 0.1 * market;
+  const votes = voteFit(input.votes);
+  return 0.5 * team + 0.4 * resource + 0.1 * votes;
 }
 
 function clamp(n: number): number {

@@ -120,7 +120,7 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
     const ideas = agent.listIdeas(phase);
     const lines = ideas.map((idea) => ({
       idea,
-      score: idea.score_team == null ? null : composite({ team: idea.score_team, resource: idea.score_resource }),
+      score: idea.score_team == null ? null : composite({ team: idea.score_team, resource: idea.score_resource, votes: idea.votes }),
     }));
     await ctx.reply(fmt.ideasList(lines));
   });
@@ -144,7 +144,7 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
       await ctx.reply(out + "\nScoring…");
       try {
         const scores = await agent.validateIdea(id);
-        const c = composite({ team: scores.team, resource: scores.resource });
+        const c = composite({ team: scores.team, resource: scores.resource, votes: scores.votes });
         await ctx.reply(`#${id} score: ${(c * 10).toFixed(0)}/10 — ${scores.reason}`);
       } catch {
         await ctx.reply(`#${id} scoring failed — will retry on /constraint`);
@@ -179,7 +179,7 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
     const ideas = agent.rank(3);
     const lines = ideas.map((idea) => ({
       idea,
-      score: idea.score_team == null ? null : composite({ team: idea.score_team, resource: idea.score_resource }),
+      score: idea.score_team == null ? null : composite({ team: idea.score_team, resource: idea.score_resource, votes: idea.votes }),
     }));
     await ctx.reply(fmt.ideasList(lines));
   });
@@ -273,7 +273,7 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
     await ctx.reply(`Scoring #${id} …`);
     try {
       const scores = await agent.validateIdea(id);
-      const c = composite({ team: scores.team, resource: scores.resource });
+      const c = composite({ team: scores.team, resource: scores.resource, votes: scores.votes });
       await ctx.reply(`#${id} score: ${(c * 10).toFixed(0)}/10 — ${scores.reason}`);
     } catch (e) {
       await ctx.reply(`#${id} scoring failed: ${(e as Error).message}`);
@@ -563,7 +563,7 @@ async function runValidateIdea(ctx: Context, agent: QuorumAgent, ideaId: number)
   await ctx.reply(`Scoring #${ideaId} …`);
   try {
     const scores = await agent.validateIdea(ideaId);
-    const c = composite({ team: scores.team, resource: scores.resource });
+    const c = composite({ team: scores.team, resource: scores.resource, votes: scores.votes });
     await ctx.reply(`#${ideaId} score: ${(c * 10).toFixed(0)}/10 — ${scores.reason}`);
   } catch (e) {
     await ctx.reply(`#${ideaId} scoring failed: ${(e as Error).message}`);
@@ -621,7 +621,7 @@ async function tryRegexShortcut(
       await ctx.reply(out + "\nScoring…");
       try {
         const scores = await agent.validateIdea(id);
-        const c = composite({ team: scores.team, resource: scores.resource });
+        const c = composite({ team: scores.team, resource: scores.resource, votes: scores.votes });
         await ctx.reply(`#${id} score: ${(c * 10).toFixed(0)}/10 — ${scores.reason}`);
       } catch {
         await ctx.reply(`#${id} scoring failed — will retry on /constraint`);

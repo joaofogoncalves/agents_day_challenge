@@ -158,8 +158,9 @@ export type BoardIdea = {
   /** Raw fit values in [0, 1], or null when the idea has not been validated yet. */
   score_team: number | null;
   score_resource: number | null;
-  /** Always set; current placeholder is constant 0.5 until a market signal is wired. */
-  score_market: number;
+  /** Saturating-linear mapping of the vote count: min(votes / VOTE_SATURATION, 1).
+   *  Always set — no votes still produces a real 0.0 contribution. */
+  score_votes: number;
   /** One-sentence rationale from the last scoring pass. Null until validated. */
   score_reason: string | null;
   hours: number | null;

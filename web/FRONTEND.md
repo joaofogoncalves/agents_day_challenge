@@ -31,7 +31,7 @@ type Idea = {
   score: number;            // 1–10 integer, agent-assigned (composite)
   score_team: number | null;     // 0–1 raw fit, null until validated
   score_resource: number | null; // 0–1 raw fit, null until validated
-  score_market: number;          // 0–1, constant 0.5 placeholder for now
+  score_votes: number;           // 0–1, voteFit(votes) = min(votes / 5, 1)
   score_reason: string | null;   // one-sentence LLM rationale, null until validated
   hours: number;     // time estimate in hours, agent-assigned
   stage: 'bucket' | 'candidates' | 'selected';
@@ -58,7 +58,7 @@ When wiring the backend: a save sends a `PATCH` with just the changed fields (`n
 What a card shows, and only this:
 
 - `name` — serif, large.
-- `score` / 10 — top-right, accent color, **click to expand a breakdown panel** with three weighted progress bars (`score_team` ×50%, `score_resource` ×40%, `score_market` ×10%) and the `score_reason`. The score badge stops click propagation so it doesn't open the edit modal.
+- `score` / 10 — top-right, accent color, **click to expand a breakdown panel** with three weighted progress bars (`score_team` ×50%, `score_resource` ×40%, `score_votes` ×10%) and the `score_reason`. The score badge stops click propagation so it doesn't open the edit modal.
 - `brief` — body copy.
 - `~{hours}h` — bottom-left chip.
 - A subtle pulse indicator (decorative; signals "agent is live").

@@ -526,7 +526,7 @@ function Card({ idea, delay, onOpen, onVote, isAuthed }) {
         <div className="card__breakdown" onClick={(e) => e.stopPropagation()}>
           <ScoreBar label="team" weight={0.5} value={idea.score_team} />
           <ScoreBar label="resource" weight={0.4} value={idea.score_resource} />
-          <ScoreBar label="market" weight={0.1} value={idea.score_market ?? 0.5} />
+          <ScoreBar label="votes" weight={0.1} value={idea.score_votes ?? 0} />
           {idea.score_reason ? (
             <p className="card__breakdown-reason">{idea.score_reason}</p>
           ) : (

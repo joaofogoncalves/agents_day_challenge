@@ -19,10 +19,12 @@
       "score": 8,
       "score_team": 0.85,
       "score_resource": 0.75,
-      "score_market": 0.5,
+      "score_votes": 0.8,
       "score_reason": "Existing grammY pattern transfers cleanly; thread-as-chat-id is the only new wrinkle.",
       "hours": 6,
       "stage": "selected",
+      "votes": 4,
+      "voted_by_me": false,
       "long": "Wrap the existing grammY-style command parser behind a thin transport interface so the QuorumAgent doesn't care whether the inbound payload came from Telegram or Slack. Slack adds the wrinkle of threaded replies — we treat each thread root as the chat-id surrogate. Out of scope for v1: Slack's slash command picker UI."
     },
     {
@@ -32,10 +34,12 @@
       "score": 7,
       "score_team": 0.75,
       "score_resource": 0.65,
-      "score_market": 0.5,
+      "score_votes": 0.4,
       "score_reason": "Cron + agent.schedule are already wired; digest formatting needs polish.",
       "hours": 4,
       "stage": "selected",
+      "votes": 2,
+      "voted_by_me": false,
       "long": "Schedule a Sunday-evening cron per chat that walks the parked + killed shelves, reruns the validation pass against the current team profile, and produces a top-3 list of reanimation candidates. Output goes to the chat as a single message — collapsible, with the why-rope visible inline. Skipped if the chat has had zero activity for 14 days."
     },
     {
@@ -45,10 +49,12 @@
       "score": 9,
       "score_team": 0.95,
       "score_resource": 0.85,
-      "score_market": 0.5,
+      "score_votes": 1.0,
       "score_reason": "GitHub API plumbing exists; weighting and storage are straightforward.",
       "hours": 5,
       "stage": "selected",
+      "votes": 5,
+      "voted_by_me": true,
       "long": "When a user links their GitHub via /me github:handle, fetch the public language histogram across their last 50 pushed repos, weight by recency, and store a compact skill vector on the agent's SQL row for that user. The validation phase consults this vector to flag ideas that the team can't realistically execute. No private repo scopes — public-only, no token storage."
     },
     {
@@ -58,10 +64,12 @@
       "score": 6,
       "score_team": 0.55,
       "score_resource": 0.65,
-      "score_market": 0.5,
+      "score_votes": 0.2,
       "score_reason": "Whisper costs eat the Neuron budget; gating is the easy part.",
       "hours": 3,
       "stage": "candidates",
+      "votes": 1,
+      "voted_by_me": false,
       "long": "Audio messages flow through @cf/openai/whisper, the resulting transcript is treated identically to typed /idea text. Watch the Neuron budget — Whisper is heavy. Gate behind a per-chat opt-in flag stored in agent state."
     },
     {
@@ -71,10 +79,12 @@
       "score": 7,
       "score_team": 0.7,
       "score_resource": 0.7,
-      "score_market": 0.5,
+      "score_votes": 0.6,
       "score_reason": "Embeddings + cosine is a small surface; sqlite-vss adds one dependency.",
       "hours": 4,
       "stage": "candidates",
+      "votes": 3,
+      "voted_by_me": false,
       "long": "Compute an embedding for every new /idea, compare against all live ideas in the same chat with cosine > 0.86, and respond with a soft prompt: 'this looks like idea #7 — merge or keep separate?'. Reduces bucket noise massively in chats where the same proposal gets re-pitched in different words. Vectors live in this.sql with sqlite-vss."
     },
     {
@@ -84,10 +94,12 @@
       "score": 5,
       "score_team": 0.55,
       "score_resource": 0.5,
-      "score_market": 0.5,
+      "score_votes": 0.2,
       "score_reason": "Schedule API exists; dedupe-on-movement edges need care.",
       "hours": 2,
       "stage": "candidates",
+      "votes": 1,
+      "voted_by_me": false,
       "long": "Every parked idea schedules a one-shot via this.schedule() seven days out. On fire, the agent posts a single sentence into the chat: 'idea #N has been parked for a week — kill, revive, or leave?'. Cancellable; dedupes if the idea moves in the meantime."
     },
     {
@@ -97,10 +109,12 @@
       "score": 6,
       "score_team": 0.65,
       "score_resource": 0.65,
-      "score_market": 0.5,
+      "score_votes": 0.4,
       "score_reason": "ASCII render is straightforward; screen-reader parse needs verification.",
       "hours": 2,
       "stage": "candidates",
+      "votes": 2,
+      "voted_by_me": false,
       "long": "Today /why returns prose. The ASCII variant draws the event chain as a vertical rope with branches for each stage transition — looks great in monospace clients, parses cleanly for screen readers. Toggle via /why --tree."
     },
     {
@@ -110,10 +124,12 @@
       "score": 4,
       "score_team": 0.4,
       "score_resource": 0.35,
-      "score_market": 0.5,
+      "score_votes": 0.2,
       "score_reason": "Trivial to ship; eval-for-bias gates a responsible release.",
       "hours": 3,
       "stage": "bucket",
+      "votes": 1,
+      "voted_by_me": false,
       "long": "Stylistic prompt-prefix swap, persisted on the agent's state. Doesn't change behavior, only the surface voice of every reply. Risk: tone presets bleed into judgement framing in subtle ways — needs eval before shipping wider than two presets."
     },
     {
@@ -123,10 +139,12 @@
       "score": 8,
       "score_team": 0.85,
       "score_resource": 0.75,
-      "score_market": 0.5,
+      "score_votes": 0.8,
       "score_reason": "Scoring pipeline already reads context; decay function is one math change.",
       "hours": 5,
       "stage": "bucket",
+      "votes": 4,
+      "voted_by_me": true,
       "long": "/constraint deadline:2026-06-01 headcount:2 — these become first-class facts the validation phase reads. Ideas whose effort estimate exceeds the runway get score-decayed, not killed, so they remain reanimation candidates if the constraint relaxes. The decay function is a soft sigmoid, not a cliff."
     },
     {
@@ -136,10 +154,12 @@
       "score": 6,
       "score_team": 0.65,
       "score_resource": 0.6,
-      "score_market": 0.5,
+      "score_votes": 0.4,
       "score_reason": "Same React surface; tokenizing the URL adds a small auth path.",
       "hours": 4,
       "stage": "bucket",
+      "votes": 2,
+      "voted_by_me": false,
       "long": "Each chat gets a /board command that returns a tokenized URL — the page reads from the agent over a signed GET endpoint and renders these three columns. Read-only; mutations always go through the chat. Exists so non-members can be shown the state without joining."
     },
     {
@@ -149,10 +169,12 @@
       "score": 3,
       "score_team": 0.35,
       "score_resource": 0.3,
-      "score_market": 0.5,
+      "score_votes": 0.0,
       "score_reason": "Easy to ship; demo benefit is marginal — empty briefs aren't really our pain.",
       "hours": 2,
       "stage": "bucket",
+      "votes": 0,
+      "voted_by_me": false,
       "long": "Three templates to start: experiment, infra, polish. The template fills the long-description with a structured skeleton the user edits in-place. Reduces empty-brief ideas, which today end up parked because nobody can validate them."
     },
     {
@@ -162,10 +184,12 @@
       "score": 2,
       "score_team": 0.2,
       "score_resource": 0.2,
-      "score_market": 0.5,
+      "score_votes": 0.0,
       "score_reason": "Global index + permissioning is a multi-day arc; way out of scope.",
       "hours": 6,
       "stage": "bucket",
+      "votes": 0,
+      "voted_by_me": false,
       "long": "Ambitious. Requires a global user→chats index and a permissioning model that respects per-chat privacy. Most likely cut. Kept in the bucket as a marker for after-hackathon thinking."
     }
   ]

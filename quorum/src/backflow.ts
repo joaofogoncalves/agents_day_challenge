@@ -35,7 +35,7 @@ export async function reanimate(
 
   for (const idea of candidates) {
     const scores = await agent.validateIdea(idea.id);
-    const score = composite({ team: scores.team, resource: scores.resource });
+    const score = composite({ team: scores.team, resource: scores.resource, votes: idea.votes });
     if (score >= REANIMATE_THRESHOLD) {
       agent.setStatus(idea.id, "ideating", `reanimated by: ${constraint}`);
       reanimated.push(idea.id);
