@@ -73,6 +73,19 @@ Deferred until after the demo:
 
 A chat-native agent for the new bottleneck in software: knowing *what* to build. AI has commoditized execution; the cost of picking the wrong thing now exceeds the cost of building it. Quorum lives in a team's group chat (Telegram now, Slack-adapter-ready) and converges them onto the right thing to build. Three phases (Ideation / Validation / Planning) with **backflow** between them. Grounded in real team skills via GitHub or self-declared `/me` text.
 
+## Bot UX philosophy: agentic-first, commands as fallback
+
+The product story is "an agent that lives in your chat" — not "a CLI in your chat". Every new capability should be **reachable through plain language first**, with a slash command added only as the deterministic safety net for when the LLM router misfires or a power user wants muscle-memory.
+
+Concretely, when adding bot capability:
+
+1. **Default to extending the router's tool surface** in `quorum/src/router.ts` and `prompts/router.md`. Add a new `Tool` (e.g. `update_idea_prose`, `set_deadline`, `clear_constraints`) with strict args, then dispatch through `dispatchDecision` in `quorum/src/telegram.ts`. The user's free-form message becomes the trigger: *"can you flesh out the long description of #3 with a paragraph about session persistence?"* should Just Work.
+2. **Then add the slash command** as a thin wrapper that calls the same agent method. Slash commands stay in the help list and `format.ts` so anyone can fall back to them when natural language fails — see `/idea`, `/vote`, `/constraint`, `/brief`, `/long`. They are deliberately the same path as the router tool, not a parallel implementation.
+3. **Confidence-band the destructive ones.** Anything that triggers a cascade (a constraint, a kill, a phase move on multiple ideas) goes through `pending_confirmations` with a "reply *yes*" gate, regardless of which surface fired it.
+4. **Don't bolt on more commands without asking the agentic question first.** If the natural-language path would need a new schema, a new tool, or fresh prompt-engineering, do that work — don't dodge it by shipping `/feature_x_y`.
+
+The router contract (target message vs prior context, `markRouted` to prevent re-fires, snapshot built per question) is in [`SPEC.md`](./SPEC.md) "Conversational mode" — read that before touching the router. The "two independent signals" rule (`votes` social vs `fit_score` agent-validation) lives in `answerQuestion`'s system prompt; preserve it any time you change that snapshot.
+
 Sponsor: **Cloudflare** — "Build a Personal Agent that Automates a Meaningful Task." Single-target. Every architectural primitive must defend its place on the Cloudflare platform.
 
 ## Stack (locked, full details in PLAN.md)
