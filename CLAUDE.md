@@ -9,6 +9,7 @@ Hackathon repository (Cloudflare-sponsored Agents Day, May 1 2026). The project 
 1. [`PLAN.md`](./PLAN.md) — overview, pitch, stack, timeline, cuts-in-order, demo flow.
 2. [`SPEC.md`](./SPEC.md) — **data + API contracts**. Always-in-sync source of truth for schema, commands, endpoints, internal Agent methods, prompt I/O shapes, scoring formula.
 3. [`team/joao.md`](./team/joao.md), [`team/rui.md`](./team/rui.md), [`team/twody7.md`](./team/twody7.md) — per-person scope, files owned, interfaces, hour-by-hour, DoD.
+4. [`web/FRONTEND.md`](./web/FRONTEND.md) — board UI need-to-knows: column stages, the `Idea` shape, what's user-editable vs. agent-owned, naming conventions. Read before touching `web/`.
 
 This file is a thin orientation layer on top of the above. Don't restate them here — point to them.
 
