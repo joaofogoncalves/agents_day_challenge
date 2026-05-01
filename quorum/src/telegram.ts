@@ -140,7 +140,7 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
   });
 
   bot.command("gh", async (ctx) => {
-    const handle = ctx.match.trim().replace(/^@/, "");
+    const handle = parseGithubHandle(ctx.match);
     if (!handle) return ctx.reply("usage: /gh <github-username>");
     const gh = await github.profile(handle, agent.bindings.GITHUB_TOKEN);
     if (!gh) return ctx.reply(`Couldn't reach GitHub for @${handle}.`);
@@ -278,6 +278,20 @@ function authorOf(ctx: Context): string {
 }
 
 /**
+ * Accept any of: `octocat`, `@octocat`, `https://github.com/octocat`,
+ * `github.com/octocat`, `github.com/octocat/repo`, with or without trailing
+ * slash. Returns just the handle, or null if we can't pick one out.
+ */
+function parseGithubHandle(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  const urlMatch = /github\.com\/([A-Za-z0-9-]+)(?:\/.*)?$/i.exec(trimmed);
+  if (urlMatch) return urlMatch[1] ?? null;
+  const cleaned = trimmed.replace(/^@/, "").split(/[\/\s]/)[0] ?? "";
+  return /^[A-Za-z0-9-]+$/.test(cleaned) ? cleaned : null;
+}
+
+/**
  * The bot is "addressed" when:
  *   • the chat is private (1:1 DM with the bot)
  *   • the message text contains @<botUsername>
@@ -364,7 +378,13 @@ async function dispatchDecision(
     }
 
     case "answer_question": {
-      const answer = await agent.answerQuestion(plan.question);
+      const base = agent.bindings.PUBLIC_BASE_URL ?? "https://quorum.joao-f-o-goncalves.workers.dev";
+      const boardUrl = ctx.chat ? `${base}/?chat=${ctx.chat.id}` : undefined;
+      const answer = await agent.answerQuestion(plan.question, {
+        boardUrl,
+        chatId: ctx.chat?.id,
+        botUsername: ctx.me?.username,
+      });
       await ctx.reply(answer);
       return;
     }
