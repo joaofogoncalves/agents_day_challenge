@@ -22,6 +22,10 @@
 
 ---
 
+<p align="center">
+  <img src="docs/board-screenshot.png" alt="Quorum board UI — Bucket / Candidates / Selected for development columns, with team and context rails" />
+</p>
+
 AI made software cheap to ship. Picking the wrong thing is now the expensive mistake. **Quorum** lives in your team's group chat (Telegram now, Slack-adapter-ready), runs ideas through three phases — **Ideation → Validation → Planning** — with backflow when constraints change, and grounds its scoring in your team's real skills.
 
 Built end-to-end on Cloudflare for **Agents Day 2026**.
