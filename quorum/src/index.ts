@@ -86,6 +86,7 @@ export default {
       if (!chatId) {
         return new Response("no chat id", { status: 200 });
       }
+      console.log(`webhook: chat=${chatId}`);
 
       const id = env.QuorumAgent.idFromName(chatId);
       const stub = env.QuorumAgent.get(id);

@@ -11,6 +11,8 @@ declare global {
     GITHUB_TOKEN?: string;
     /** Telegram chat ID the board API targets when no `?chat=` override is given. */
     DEFAULT_BOARD_CHAT?: string;
+    /** Public origin of this Worker. Used by /start to build the per-chat board URL. */
+    PUBLIC_BASE_URL?: string;
   }
 }
 

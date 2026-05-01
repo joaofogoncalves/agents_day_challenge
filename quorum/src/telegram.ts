@@ -34,11 +34,24 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
   });
 
   bot.command("start", async (ctx) => {
-    await ctx.reply(fmt.help());
+    const base = agent.bindings.PUBLIC_BASE_URL ?? "https://quorum.joao-f-o-goncalves.workers.dev";
+    const boardUrl = `${base}/?chat=${ctx.chat.id}`;
+    await ctx.reply(`${fmt.help()}\n\n📋 Board for this chat:\n${boardUrl}`);
   });
 
   bot.command("help", async (ctx) => {
     await ctx.reply(fmt.help());
+  });
+
+  bot.command("board", async (ctx) => {
+    const base = agent.bindings.PUBLIC_BASE_URL ?? "https://quorum.joao-f-o-goncalves.workers.dev";
+    await ctx.reply(`${base}/?chat=${ctx.chat.id}`);
+  });
+
+  bot.command("whoami", async (ctx) => {
+    const chatId = ctx.chat.id;
+    const userId = ctx.from?.id ?? "?";
+    await ctx.reply(`chat=${chatId} user=${userId}`);
   });
 
   bot.command("idea", async (ctx) => {
@@ -197,6 +210,19 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
   bot.on("message:text", async (ctx) => {
     if (ctx.message.text.startsWith("/")) return;
     await ctx.reply(`echo: ${ctx.message.text}`);
+  });
+
+  // Surface command errors back to the chat so silent failures stop happening.
+  bot.catch(async (err) => {
+    const chatId = err.ctx.chat?.id;
+    const cmd = err.ctx.message?.text ?? "(non-message)";
+    const message = err.error instanceof Error ? err.error.message : String(err.error);
+    console.error(`bot error in chat=${chatId} cmd=${cmd}: ${message}`);
+    try {
+      await err.ctx.reply(`⚠️ command failed: ${message.slice(0, 200)}`);
+    } catch {
+      /* swallow — original chat may be gone */
+    }
   });
 
   return bot;

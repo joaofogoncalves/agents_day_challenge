@@ -14,7 +14,8 @@
   "compatibility_flags": ["nodejs_compat"],
   "ai": { "binding": "AI", "remote": true },
   "vars": {
-    "DEFAULT_BOARD_CHAT": "-5120669057"
+    "DEFAULT_BOARD_CHAT": "-5120669057",
+    "PUBLIC_BASE_URL": "https://quorum.joao-f-o-goncalves.workers.dev"
   },
   "assets": {
     "directory": "../web/dist",
