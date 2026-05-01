@@ -12,10 +12,12 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-03-02",
   "compatibility_flags": ["nodejs_compat"],
-  "ai": { "binding": "AI", "remote": true },
+  // Inline markdown prompt files (quorum/prompts/*.md) as string modules.
+  // The TS ambient declaration lives at src/md-modules.d.ts.
   "rules": [
-    { "type": "Text", "globs": ["**/*.md"] }
+    { "type": "Text", "globs": ["**/*.md"], "fallthrough": true }
   ],
+  "ai": { "binding": "AI", "remote": true },
   "vars": {
     "DEFAULT_BOARD_CHAT": "-5120669057",
     "PUBLIC_BASE_URL": "https://quorum.joao-f-o-goncalves.workers.dev"

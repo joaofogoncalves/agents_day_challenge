@@ -42,6 +42,27 @@ export const SCHEMA = [
     payload TEXT,
     created_at INTEGER NOT NULL
   )`,
+  // Conversation log — every text message in the chat, command or not,
+  // addressed or not. Foundation for the agentic / "reads everything" pitch.
+  // The router uses recent rows as context.
+  `CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    author_id TEXT,
+    author_name TEXT,
+    text TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    addressed_bot INTEGER NOT NULL DEFAULT 0,
+    intent_json TEXT
+  )`,
+  // Short-lived per-user "did you mean X?" state. When the bot proposes an
+  // action (e.g. /constraint), it stashes the action here; the next "yes"
+  // from that user inside the TTL executes it. Cheap state machine, no
+  // inline keyboards needed.
+  `CREATE TABLE IF NOT EXISTS pending_confirmations (
+    user_id TEXT PRIMARY KEY,
+    action_json TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+  )`,
 ] as const;
 
 /**
@@ -131,4 +152,29 @@ export type EventType =
   | "context_changed"
   | "scored"
   | "reanimated"
-  | "demoted";
+  | "demoted"
+  | "observed"
+  | "router_call"
+  | "injection_blocked";
+
+export type Message = {
+  id: number;
+  author_id: string | null;
+  author_name: string | null;
+  text: string;
+  ts: number;
+  addressed_bot: number;
+  intent_json: string | null;
+};
+
+/**
+ * An ActionPlan is what the router emits and what gets stashed in
+ * pending_confirmations when a proposal needs a yes. Mirrors the tool-call
+ * surface in src/router.ts.
+ */
+export type ActionPlan =
+  | { kind: "add_idea"; text: string }
+  | { kind: "propose_constraint"; text: string }
+  | { kind: "answer_question"; question: string }
+  | { kind: "record_member"; text: string }
+  | { kind: "noop" };

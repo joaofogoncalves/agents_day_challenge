@@ -59,7 +59,49 @@ CREATE TABLE events (
   payload TEXT,             -- JSON
   created_at INTEGER NOT NULL
 );
+
+-- Conversation log. Every text message in the chat (command or not, addressed
+-- or not) is appended here. Foundation for the agentic / "reads everything"
+-- pitch. The intent router (src/router.ts) reads the last N rows as context.
+CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  author_id TEXT,
+  author_name TEXT,
+  text TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  addressed_bot INTEGER NOT NULL DEFAULT 0,  -- 1 = mention/reply/DM
+  intent_json TEXT                           -- optional cached router decision
+);
+
+-- Per-user "did you mean X?" stash. The router proposes an action, the user
+-- replies "yes", the action runs. Single-row-per-user, TTL ≤ 180s.
+CREATE TABLE pending_confirmations (
+  user_id TEXT PRIMARY KEY,
+  action_json TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
 ```
+
+## Conversational mode (no slash needed)
+
+In addition to slash commands, the bot now reads every plain-text message and acts when it can do so safely. Three layers, in priority order:
+
+1. **Silent observation.** Every message → `agent.observe(text, authorId, authorName, addressed)` → `messages` table. Free, no LLM call. Foundation for the "reads everything" pitch.
+2. **Regex shortcuts.** Deterministic patterns dispatch instantly to existing methods. No LLM:
+   - `+1 #N` / `👍 #N` / `vote #N` → `voteIdea(N, …)`
+   - `kill #N` → `setStatus(N, "killed")`
+   - `park #N` → `setStatus(N, "parked")`
+   - `promote #N` → `promote(N)`
+3. **LLM intent router** (only when **addressed** — `@<botUsername>`, reply-to-bot, or private chat). Runs `routeIntent(ai, recentMessages, addressed)` against an OpenAI-style tool surface (`add_idea | propose_constraint | answer_question | record_member | noop`). Confidence-banded:
+   - `≥ 0.75` for safe non-cascading actions → execute, brief reply.
+   - any `propose_constraint` → never auto-executes; stashes an `ActionPlan` in `pending_confirmations`, asks the user "reply *yes*…".
+   - `noop` or low-confidence → minimal/no reply.
+
+Pending confirmations live ≤ 180s. A user replying `yes` (or `y`/`yep`/`👍`/`✅`) inside the TTL runs the stashed plan via `executePlan`.
+
+Prompt-injection guard runs before the LLM: known patterns ("ignore previous", "system:", "you are now") short-circuit to `noop`, no Neuron spent.
+
+Slash commands remain the deterministic fallback path — `/constraint we lost a backend dev` always works, even if the router misfires live.
 
 ## Bot commands
 
@@ -151,16 +193,24 @@ The Agent class is the canonical state owner. All command handlers go through th
 
 | Method | Args | Returns | Caller |
 |--------|------|---------|--------|
-| `addIdea(text, authorId)` | `string, string` | `{ id: number }` | `/idea` |
-| `voteIdea(id, userId)` | `number, string` | `{ votes: number }` | `/vote` |
+| `addIdea(text, authorId)` | `string, string` | `{ id: number }` | `/idea`, router `add_idea` |
+| `voteIdea(id, userId)` | `number, string` | `{ votes: number }` | `/vote`, regex `+1 #N` |
 | `listIdeas(phase?)` | `string?` | `Idea[]` | `/ideas`, `/rank` |
+| `rank(limit)` | `number` | `Idea[]` | `/rank`, router `answer_question` |
 | `setContext(updates)` | `Record<string,string>` | `{ recomputed: number }` | `/event`, `/constraint` |
 | `validateIdea(id)` | `number` | `{ team, resource, market, reason }` | scoring pipeline |
-| `reanimate(constraint)` | `string` | `{ reanimated: id[], demoted: id[], reason: string }` | `/constraint` |
-| `setMember(userId, patch)` | `string, Partial<Member>` | `Member` | `/me`, `/gh` |
+| `reanimate(constraint)` | `string` | `{ reanimated: id[], demoted: id[], reason: string }` | `/constraint`, confirmed `propose_constraint` |
+| `setMember(userId, patch)` | `string, Partial<Member>` | `Member` | `/me`, `/gh`, router `record_member` |
 | `forgetMember(userId)` | `string` | `void` | `/forget` |
 | `teamSummary()` | — | `{ strong: string[], gaps: string[], members: number }` | `/team` |
 | `planFor(id)` | `number` | `string` (markdown) | `/plan` |
+| `getBoard()` | — | `BoardIdea[]` | `GET /api/board` |
+| `updateIdea(id, patch)` | `number, {name?, long?}` | `BoardIdea \| null` | `PATCH /api/ideas/:uid` |
+| `observe(text, authorId, authorName, addressed)` | `string, string\|null, string\|null, boolean` | `void` | every plain-text message |
+| `recentMessages(limit?)` | `number?` (default 8) | `Message[]` | router context |
+| `pendingConfirmation(userId)` | `string` | `ActionPlan \| null` | "yes" reply lookup |
+| `setPendingConfirmation(userId, plan, ttlSec?)` | `string, ActionPlan, number?` | `void` | router proposals |
+| `clearPendingConfirmation(userId)` | `string` | `void` | after execute / TTL expiry |
 
 ## LLM prompt contracts
 

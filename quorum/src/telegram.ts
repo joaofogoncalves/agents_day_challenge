@@ -16,6 +16,8 @@ import * as fmt from "./format";
 import { extractSkills } from "./skills";
 import { extractEvent } from "./extract-event";
 import * as github from "./github";
+import { routeIntent } from "./router";
+import type { ActionPlan } from "./schema";
 
 export function createBot(agent: QuorumAgent, token: string): Bot {
   // Let grammy fetch botInfo via getMe() lazily on first request.
@@ -27,11 +29,13 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
   bot.command("start", async (ctx) => {
     const base = agent.bindings.PUBLIC_BASE_URL ?? "https://quorum.joao-f-o-goncalves.workers.dev";
     const boardUrl = `${base}/?chat=${ctx.chat.id}`;
-    await ctx.reply(`${fmt.help()}\n\n📋 Board for this chat:\n${boardUrl}`);
+    await ctx.reply(`${fmt.welcome()}\n\n📋 Live board for this chat:\n${boardUrl}`, {
+      parse_mode: "Markdown",
+    });
   });
 
   bot.command("help", async (ctx) => {
-    await ctx.reply(fmt.help());
+    await ctx.reply(fmt.help(), { parse_mode: "Markdown" });
   });
 
   bot.command("board", async (ctx) => {
@@ -197,10 +201,46 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
     await ctx.reply(md);
   });
 
-  // H+1 DoD: bot echoes any non-command message in our test group.
+  // Plain-text handler — runs only for messages grammy didn't route to a
+  // command. Pipeline (each step short-circuits if it handled the message):
+  //   1. observe (always, free)
+  //   2. pending confirmation? "yes" reply to a previous proposal
+  //   3. regex shortcuts (+1 #N, kill #N, park #N, promote #N) — free
+  //   4. addressed-mode LLM router (mention/reply/DM only)
+  //   5. otherwise silent
   bot.on("message:text", async (ctx) => {
-    if (ctx.message.text.startsWith("/")) return;
-    await ctx.reply(`echo: ${ctx.message.text}`);
+    const text = ctx.message.text;
+    if (text.startsWith("/")) return;
+    const authorId = String(ctx.from?.id ?? "anon");
+    const authorName = ctx.from?.first_name ?? null;
+    const addressed = isAddressed(ctx);
+    agent.observe(text, authorId, authorName, addressed);
+
+    // Step 2: "yes" reply confirms whatever the bot last proposed to this user.
+    if (isAffirmative(text)) {
+      const pending = agent.pendingConfirmation(authorId);
+      if (pending) {
+        agent.clearPendingConfirmation(authorId);
+        await executePlan(ctx, agent, pending, authorId);
+        return;
+      }
+    }
+
+    if (await tryRegexShortcut(ctx, agent, text, authorId)) return;
+
+    if (!addressed) return; // overheard chatter — observe only.
+
+    // Step 4: addressed → run the LLM router.
+    try {
+      await ctx.replyWithChatAction("typing").catch(() => {});
+      const recent = agent.recentMessages(8);
+      const decision = await routeIntent(agent.bindings.AI, recent, true);
+      await dispatchDecision(ctx, agent, decision, authorId);
+    } catch (e) {
+      console.error("router failed:", e);
+      // bot.catch will also see this; reply something brief so the chat isn't silent.
+      await ctx.reply("hmm, I couldn't think that through. try a slash command? `/help`");
+    }
   });
 
   // Surface command errors back to the chat so silent failures stop happening.
@@ -221,4 +261,192 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
 
 function authorOf(ctx: Context): string {
   return String(ctx.from?.id ?? "anon");
+}
+
+/**
+ * The bot is "addressed" when:
+ *   • the chat is private (1:1 DM with the bot)
+ *   • the message text contains @<botUsername>
+ *   • the message is a direct reply to one of the bot's previous messages
+ * Anything else is overheard chatter — observed but not acted upon.
+ */
+function isAddressed(ctx: Context): boolean {
+  if (ctx.chat?.type === "private") return true;
+  const text = ctx.message?.text ?? "";
+  const me = ctx.me;
+  if (me?.username && text.toLowerCase().includes(`@${me.username.toLowerCase()}`)) {
+    return true;
+  }
+  const replyTo = ctx.message?.reply_to_message?.from;
+  if (me?.id && replyTo?.id === me.id) return true;
+  return false;
+}
+
+/** Loose match for "yes I confirm" replies that resolve a pending proposal. */
+function isAffirmative(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  return /^(yes|y|yep|yeah|sim|sí|ok|okay|do it|go|👍|✅)\b\.?$/i.test(t);
+}
+
+/**
+ * Confidence thresholds. High → execute. Below → propose for confirmation.
+ * Constraint changes never auto-execute regardless of confidence — the
+ * reanimation cascade is the demo moment, it must be intentional.
+ */
+const HIGH_CONFIDENCE = 0.75;
+
+async function dispatchDecision(
+  ctx: Context,
+  agent: QuorumAgent,
+  decision: { plan: ActionPlan; confidence: number; blocked?: string },
+  authorId: string,
+): Promise<void> {
+  if (decision.blocked === "injection") {
+    // Stay silent. The message is in the observe log if /why ever needs it.
+    return;
+  }
+  const { plan, confidence } = decision;
+  switch (plan.kind) {
+    case "noop":
+      // The bot was addressed but the message didn't have a clear ask.
+      // Reply something minimal so the user doesn't think the bot is dead.
+      await ctx.reply("got it — noted. (try /help for commands)");
+      return;
+
+    case "add_idea": {
+      if (confidence >= HIGH_CONFIDENCE) {
+        const { id } = agent.addIdea(plan.text, authorId);
+        await ctx.reply(fmt.ideaAdded(id, plan.text));
+      } else {
+        agent.setPendingConfirmation(authorId, plan);
+        await ctx.reply(`Should I add this as an idea: "${plan.text}"? Reply *yes* to confirm.`);
+      }
+      return;
+    }
+
+    case "propose_constraint": {
+      // Constraints are always proposed, never auto-executed.
+      agent.setPendingConfirmation(authorId, plan);
+      await ctx.reply(
+        `Sounds like a team constraint: "${plan.text}". Want me to re-validate parked/killed ideas? Reply *yes* — or run \`/constraint ${plan.text}\`.`,
+      );
+      return;
+    }
+
+    case "record_member": {
+      if (confidence >= HIGH_CONFIDENCE) {
+        const skills = await extractSkills(agent.bindings.AI, plan.text);
+        const displayName = ctx.from?.first_name ?? null;
+        agent.setMember(authorId, {
+          display_name: displayName,
+          skills_json: JSON.stringify(skills),
+        });
+        await ctx.reply(`Saved skills for you: [${skills.join(", ")}]`);
+      } else {
+        agent.setPendingConfirmation(authorId, plan);
+        await ctx.reply(`Want me to save your skills from "${plan.text}"? Reply *yes*.`);
+      }
+      return;
+    }
+
+    case "answer_question": {
+      const answer = await agent.answerQuestion(plan.question);
+      await ctx.reply(answer);
+      return;
+    }
+  }
+}
+
+/**
+ * Run a previously-stashed plan after the user replied "yes". Mirrors the
+ * high-confidence dispatch arms above.
+ */
+async function executePlan(
+  ctx: Context,
+  agent: QuorumAgent,
+  plan: ActionPlan,
+  authorId: string,
+): Promise<void> {
+  switch (plan.kind) {
+    case "add_idea": {
+      const { id } = agent.addIdea(plan.text, authorId);
+      await ctx.reply(fmt.ideaAdded(id, plan.text));
+      return;
+    }
+    case "propose_constraint": {
+      await ctx.reply(`Re-validating against: "${plan.text}" …`);
+      const out = await agent.reanimate(plan.text);
+      const re = out.reanimated.length ? `[${out.reanimated.map((id) => `#${id}`).join(", ")}]` : "[]";
+      const dem = out.demoted.length ? `[${out.demoted.map((id) => `#${id}`).join(", ")}]` : "[]";
+      await ctx.reply(`Reanimated: ${re}. Demoted: ${dem}. Reason: ${out.reason}`);
+      return;
+    }
+    case "record_member": {
+      const skills = await extractSkills(agent.bindings.AI, plan.text);
+      const displayName = ctx.from?.first_name ?? null;
+      agent.setMember(authorId, {
+        display_name: displayName,
+        skills_json: JSON.stringify(skills),
+      });
+      await ctx.reply(`Saved skills for you: [${skills.join(", ")}]`);
+      return;
+    }
+    case "answer_question":
+    case "noop":
+      // Nothing to do; the proposal was for read-only or no-action.
+      await ctx.reply("ok — done.");
+      return;
+  }
+}
+
+/**
+ * Deterministic shortcuts for high-confidence syntax. No LLM call.
+ * Returns true if the message matched and was handled — caller should stop.
+ */
+async function tryRegexShortcut(
+  ctx: Context,
+  agent: QuorumAgent,
+  text: string,
+  authorId: string,
+): Promise<boolean> {
+  const trimmed = text.trim();
+
+  // +1 #N  /  👍 #N  /  vote #N → upvote
+  const voteMatch = /^(?:\+1|👍|vote)\s+#?(\d+)$/i.exec(trimmed);
+  if (voteMatch) {
+    const id = parseInt(voteMatch[1] ?? "0", 10);
+    const result = agent.voteIdea(id, authorId);
+    if (result == null) await ctx.reply(fmt.notFound(id));
+    else await ctx.reply(fmt.voted(result.votes));
+    return true;
+  }
+
+  // kill #N
+  const killMatch = /^kill\s+#?(\d+)$/i.exec(trimmed);
+  if (killMatch) {
+    const id = parseInt(killMatch[1] ?? "0", 10);
+    const ok = agent.setStatus(id, "killed", "shortcut: 'kill #N'");
+    await ctx.reply(ok ? `#${id} killed. Still queryable.` : fmt.notFound(id));
+    return true;
+  }
+
+  // park #N
+  const parkMatch = /^park\s+#?(\d+)$/i.exec(trimmed);
+  if (parkMatch) {
+    const id = parseInt(parkMatch[1] ?? "0", 10);
+    const ok = agent.setStatus(id, "parked", "shortcut: 'park #N'");
+    await ctx.reply(ok ? `#${id} parked. Eligible for backflow.` : fmt.notFound(id));
+    return true;
+  }
+
+  // promote #N
+  const promoteMatch = /^promote\s+#?(\d+)$/i.exec(trimmed);
+  if (promoteMatch) {
+    const id = parseInt(promoteMatch[1] ?? "0", 10);
+    const out = agent.promote(id);
+    await ctx.reply(out ?? fmt.notFound(id));
+    return true;
+  }
+
+  return false;
 }
