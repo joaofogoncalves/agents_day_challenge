@@ -438,11 +438,31 @@ export class QuorumAgent extends Agent<Env> {
     const after = this.sql<{ votes: number }>`SELECT votes FROM ideas WHERE id = ${id}`;
     const votes = after[0]?.votes ?? 0;
     const voted = had.length === 0;
+    const actor: ActorRef = voterKey.startsWith("gh:")
+      ? { kind: "user", login: voterKey.slice(3), avatar: "" }
+      : voterKey.startsWith("anon:")
+        ? { kind: "anon", id: voterKey.slice(5) }
+        : { kind: "user", login: voterKey, avatar: "" };
     this.appendEvent(id, "idea_voted", {
       voter_key: voterKey,
       direction: voted ? "up" : "undo",
       new_total: votes,
+      by: actor,
+      voted,
     });
+    const uid = `qrm_${String(id).padStart(6, "0")}`;
+    const eventRow = (this.sql`SELECT id, created_at FROM events WHERE id = (SELECT MAX(id) FROM events)`)[0] as { id: number; created_at: number } | undefined;
+    if (eventRow) {
+      const activity = this.activityRowFromEvent({
+        event_id: eventRow.id,
+        event_kind: "idea_voted",
+        target_uid: uid,
+        by: actor,
+        ts: eventRow.created_at,
+        payload: { voted },
+      });
+      this.broadcastWire({ kind: "idea_voted", uid, votes, voter_key: voterKey, voted, activity });
+    }
     return { votes, voted };
   }
 
