@@ -69,7 +69,7 @@ Click anywhere else on the card → modal. No drag, no drop, no inline edit, no 
 ## Modal
 
 - Header: faded `uid`, close.
-- Body: editable `name`, read-only `stage` / `score` / `hours` strip, read-only `brief`, editable `long`.
+- Body: editable `name`, read-only `stage` / `score` / `hours` strip, editable `brief`, editable `long`. (Telegram editors can also use `/brief <id>` and `/long <id>` to set the same fields without the modal.)
 - Footer: `cancel` / `save`. Save is disabled until something changed.
 - `Esc` closes. Backdrop click closes. Unsaved edits are dropped on close — there's no confirmation dialog (intentional; cheap UX, easy to redo).
 
@@ -86,7 +86,7 @@ Endpoints live in `quorum/` (Cloudflare Worker + Durable Object SQLite). The Wor
 
 - `GET /api/board[?chat=<id>]` → `{ ideas, name, deadline, team, context }` (each idea has `votes`, `voted_by_me`; `team` and `context` drive the left rail — see SPEC for shapes; `deadline` is lifted from `context.deadline` to the top level for the header pill)
 - `PATCH /api/board[?chat=<id>]` body `{ name?, deadline? }` → `{ name, deadline }` — **editor whitelist required + CSRF**
-- `PATCH /api/ideas/:uid` body `{ name?, long? }` → `{ idea: Idea }` — **editor whitelist required**
+- `PATCH /api/ideas/:uid` body `{ name?, brief?, long? }` → `{ idea: Idea }` — **editor whitelist required**
 - `POST /api/ideas/:uid/vote` → toggles one vote per `(idea, signed-in user)` — **session required**
 - `GET /api/me` → `{ login, avatar_url, can_vote, can_edit }` or `{}` if anon
 - `GET /auth/github/start`, `GET /auth/github/callback`, `POST /auth/logout` — GitHub OAuth + signed session cookie

@@ -143,14 +143,15 @@ export class QuorumAgent extends Agent<Env> {
       const id = idFromUid(uid);
       if (id == null) return jsonResponse({ error: "invalid uid" }, 400);
       if (!callerEditor) return jsonResponse({ error: "forbidden" }, 403);
-      let body: { name?: unknown; long?: unknown };
+      let body: { name?: unknown; brief?: unknown; long?: unknown };
       try {
         body = await request.json();
       } catch {
         return jsonResponse({ error: "invalid json" }, 400);
       }
-      const patch: { name?: string; long?: string } = {};
+      const patch: { name?: string; brief?: string; long?: string } = {};
       if (typeof body.name === "string") patch.name = body.name;
+      if (typeof body.brief === "string") patch.brief = body.brief;
       if (typeof body.long === "string") patch.long = body.long;
       if (Object.keys(patch).length === 0) {
         return jsonResponse({ error: "nothing to update" }, 400);
@@ -235,28 +236,36 @@ export class QuorumAgent extends Agent<Env> {
       .filter((b): b is BoardIdea => b !== null);
   }
 
-  /** PATCH /api/ideas/:uid — only name and long are user-writable per FRONTEND.md. */
+  /** Patch the prose fields on an idea. Used by both PATCH /api/ideas/:uid
+   *  (web editors) and the Telegram /brief, /long commands. Score, stage,
+   *  hours and votes remain agent-owned. */
   updateIdea(
     id: number,
-    patch: { name?: string; long?: string },
+    patch: { name?: string; brief?: string; long?: string },
     editor = "unknown",
     voterKey: string | null = null,
   ): BoardIdea | null {
     const existing = this.sql<Idea>`SELECT * FROM ideas WHERE id = ${id}`;
     if (existing.length === 0) return null;
     const cleanedName = patch.name?.trim().slice(0, 200);
+    const cleanedBrief = patch.brief?.trim().slice(0, 500);
     const cleanedLong = patch.long?.slice(0, 5000);
-    if (cleanedName == null && cleanedLong == null) {
-      return this.toBoardIdea(existing[0]!, this.hasVote(id, voterKey));
-    }
-    if (cleanedName != null && cleanedLong != null) {
-      this.sql`UPDATE ideas SET name = ${cleanedName}, long = ${cleanedLong} WHERE id = ${id}`;
-    } else if (cleanedName != null) {
+    let touched = false;
+    if (cleanedName != null) {
       this.sql`UPDATE ideas SET name = ${cleanedName} WHERE id = ${id}`;
-    } else if (cleanedLong != null) {
-      this.sql`UPDATE ideas SET long = ${cleanedLong} WHERE id = ${id}`;
+      touched = true;
     }
-    this.appendEvent(id, "idea_edited", { editor, patch });
+    if (cleanedBrief != null) {
+      this.sql`UPDATE ideas SET brief = ${cleanedBrief} WHERE id = ${id}`;
+      touched = true;
+    }
+    if (cleanedLong != null) {
+      this.sql`UPDATE ideas SET long = ${cleanedLong} WHERE id = ${id}`;
+      touched = true;
+    }
+    if (touched) {
+      this.appendEvent(id, "idea_edited", { editor, patch });
+    }
     const after = this.sql<Idea>`SELECT * FROM ideas WHERE id = ${id}`;
     return this.toBoardIdea(after[0]!, this.hasVote(id, voterKey));
   }

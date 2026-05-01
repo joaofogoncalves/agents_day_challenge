@@ -133,6 +133,28 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
     await ctx.reply(fmt.ideaAdded(id, text));
   });
 
+  // /brief <id> <text> — replace the one-line description on a card.
+  // /long <id> <text> — replace the long description shown in the modal.
+  // Both reuse updateIdea so the audit log + board fetch see them the same
+  // as a web edit. No editor whitelist on Telegram (the chat is the gate).
+  bot.command("brief", async (ctx) => {
+    const m = /^(\d+)\s+([\s\S]+)$/.exec(ctx.match.trim());
+    if (!m) return ctx.reply("usage: /brief <id> <text>");
+    const id = parseInt(m[1] ?? "0", 10);
+    const text = m[2]!.trim();
+    const out = agent.updateIdea(id, { brief: text }, `tg:${authorOf(ctx)}`);
+    await ctx.reply(out ? `#${id} brief updated.` : fmt.notFound(id));
+  });
+
+  bot.command("long", async (ctx) => {
+    const m = /^(\d+)\s+([\s\S]+)$/.exec(ctx.match.trim());
+    if (!m) return ctx.reply("usage: /long <id> <text>");
+    const id = parseInt(m[1] ?? "0", 10);
+    const text = m[2]!.trim();
+    const out = agent.updateIdea(id, { long: text }, `tg:${authorOf(ctx)}`);
+    await ctx.reply(out ? `#${id} long description updated.` : fmt.notFound(id));
+  });
+
   bot.command("ideas", async (ctx) => {
     const phase = ctx.match.trim() || undefined;
     const ideas = agent.listIdeas(phase);

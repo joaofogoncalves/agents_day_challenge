@@ -73,6 +73,8 @@ export function help(): string {
     "  /ideas [phase] — list ideas (optional filter)",
     "  /vote <id> — +1 an idea",
     "  /rank — top 3 active ideas",
+    "  /brief <id> <text> — replace the one-line description",
+    "  /long <id> <text> — replace the long description",
     "",
     "_Phase moves_",
     "  /promote <id> — move forward in the pipeline",

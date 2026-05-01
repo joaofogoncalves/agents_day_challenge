@@ -124,6 +124,8 @@ Reply format is plain text (Telegram MarkdownV2 escaping handled by `format.ts`)
 | `/idea <text>` | text | INSERT into `ideas`, status=ideating | `Idea #N added — "<text>"` |
 | `/ideas [phase]` | optional phase filter | SELECT, sorted by composite | List with `#id score text` |
 | `/vote <id>` | idea id | Toggle vote for caller (idempotent per `(idea, voter)`) | `Voted. Total: N` / `Vote removed. Total: N` |
+| `/brief <id> <text>` | id, one-line text | Set the one-line description shown on the card. Reuses `updateIdea`; logs `idea_edited`. | `#N brief updated.` |
+| `/long <id> <text>` | id, long text | Set the long description shown in the editor modal. Reuses `updateIdea`; logs `idea_edited`. | `#N long description updated.` |
 | `/event <url>` | url | Scrape, populate `context`, recompute fit on all ideas | `Context set: deadline=…, budget=…. Recomputed N ideas.` |
 | `/constraint <text>` | text, or `-` to clear | With text: UPSERT `context`, **re-validate all parked/killed**. With `-`: clears both `context.constraints` (JSON array from `/event`) and `context.constraint` (singular). Empty: prints usage. | `Reanimated: [#x, #y]. Demoted: [#z]. Reason: …` / `Constraints cleared.` |
 | `/me <text>` | free-text skills | LLM extract → `members.skills_json` | `Saved skills: [t1, t2, …]` |
@@ -235,7 +237,7 @@ type Idea = {
 
 The `score_*` fields back the in-card "click the score to see the breakdown" UI in `web/`. The composite score is `composite = 0.5*team + 0.4*resource + 0.1*voteFit(votes)` scaled to 0–10; the per-fit values are exposed so the UI can render a progress bar per category. `score_reason` is the LLM's one-sentence rationale (≤150 chars, see `prompts/scoring.md`).
 
-`PATCH /api/ideas/<uid>` accepts `{ name?: string, long?: string }`. Other fields are agent-owned and rejected. Writes append an `idea_edited` row to `events`. Response: `{ idea: Idea }`.
+`PATCH /api/ideas/<uid>` accepts `{ name?: string, brief?: string, long?: string }`. Other fields are agent-owned and rejected. Writes append an `idea_edited` row to `events`. Response: `{ idea: Idea }`.
 
 `PATCH /api/board` accepts `{ name?: string, deadline?: string }`. Editor-only. Each provided string overwrites the corresponding `context` row (`board_name`, `deadline`); empty string clears. Writes append a `context_changed` event. Response: `{ name, deadline }`.
 
@@ -274,7 +276,7 @@ The Agent class is the canonical state owner. All command handlers go through th
 | `teamSummary()` | — | `{ strong: string[], gaps: string[], members: number }` | `/team` |
 | `planFor(id)` | `number` | `string` (markdown) | `/plan` |
 | `getBoard(voterKey)` | `string \| null` | `BoardIdea[]` | `GET /api/board` (voterKey populates `voted_by_me`) |
-| `updateIdea(id, patch, editor, voterKey)` | `number, {name?, long?}, string, string\|null` | `BoardIdea \| null` | `PATCH /api/ideas/:uid` (Worker enforces editor whitelist before forwarding) |
+| `updateIdea(id, patch, editor, voterKey)` | `number, {name?, brief?, long?}, string, string\|null` | `BoardIdea \| null` | `PATCH /api/ideas/:uid` (Worker enforces editor whitelist before forwarding); also called by Telegram `/brief`, `/long` with `editor = "tg:<userId>"` |
 | `observe(text, authorId, authorName, addressed)` | `string, string\|null, string\|null, boolean` | `number` (inserted message id) | every plain-text message |
 | `markRouted(messageId, intent)` | `number, ActionPlan` | `void` | After router dispatch (or any deterministic handling). Sets `messages.intent_json` so the message stops being a candidate for re-action. |
 | `priorContext(beforeId, limit?)` | `number, number?` (default 7) | `Message[]` | Older unrouted history (intent_json IS NULL), oldest-first. Router context only — never the action target. |

@@ -634,6 +634,7 @@ function ScoreBar({ label, weight, value }) {
 
 function Editor({ idea, canEdit, onClose, onSave }) {
   const [name, setName] = useState(idea.name);
+  const [brief, setBrief] = useState(idea.brief ?? '');
   const [long, setLong] = useState(idea.long);
   const unvalidated = idea.score_team == null && idea.score_resource == null && !idea.votes;
 
@@ -645,11 +646,13 @@ function Editor({ idea, canEdit, onClose, onSave }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const dirty = canEdit && (name !== idea.name || long !== idea.long);
+  const dirty =
+    canEdit &&
+    (name !== idea.name || brief !== (idea.brief ?? '') || long !== idea.long);
 
   const save = () => {
     if (!dirty) return onClose();
-    onSave(idea.uid, { name, long });
+    onSave(idea.uid, { name, brief, long });
     onClose();
   };
 
@@ -689,10 +692,23 @@ function Editor({ idea, canEdit, onClose, onSave }) {
             <ReadOnly label="estimate" value={hoursLabel} />
           </div>
 
-          <div className="field">
-            <span className="field__label">brief</span>
-            <div className="field__readonly">{idea.brief}</div>
-          </div>
+          {canEdit ? (
+            <label className="field">
+              <span className="field__label">brief</span>
+              <textarea
+                className="field__input"
+                value={brief}
+                onChange={(e) => setBrief(e.target.value)}
+                rows={2}
+                placeholder="One-line description shown on the card"
+              />
+            </label>
+          ) : (
+            <div className="field">
+              <span className="field__label">brief</span>
+              <div className="field__readonly">{idea.brief}</div>
+            </div>
+          )}
 
           {canEdit ? (
             <label className="field">
