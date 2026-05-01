@@ -342,9 +342,7 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
     }
     await ctx.reply(`Re-validating against: "${text}" …`);
     const out = await agent.reanimate(text);
-    const re = out.reanimated.length ? `[${out.reanimated.map((id) => `#${id}`).join(", ")}]` : "[]";
-    const dem = out.demoted.length ? `[${out.demoted.map((id) => `#${id}`).join(", ")}]` : "[]";
-    await ctx.reply(`Reanimated: ${re}. Demoted: ${dem}. Reason: ${out.reason}`);
+    await ctx.reply(formatReanimateResult(out));
   });
 
   bot.command("validate", async (ctx) => {
@@ -611,9 +609,7 @@ async function executePlan(
     case "propose_constraint": {
       await ctx.reply(`Re-validating against: "${plan.text}" …`);
       const out = await agent.reanimate(plan.text);
-      const re = out.reanimated.length ? `[${out.reanimated.map((id) => `#${id}`).join(", ")}]` : "[]";
-      const dem = out.demoted.length ? `[${out.demoted.map((id) => `#${id}`).join(", ")}]` : "[]";
-      await ctx.reply(`Reanimated: ${re}. Demoted: ${dem}. Reason: ${out.reason}`);
+      await ctx.reply(formatReanimateResult(out));
       return;
     }
     case "record_member": {
@@ -648,6 +644,21 @@ async function runValidateIdea(ctx: Context, agent: QuorumAgent, ideaId: number)
   } catch (e) {
     await ctx.reply(`#${ideaId} scoring failed: ${(e as Error).message}`);
   }
+}
+
+/** Format the result of a reanimate / /constraint run into a Telegram reply. */
+function formatReanimateResult(out: { reanimated: number[]; demoted: number[]; reason: string }): string {
+  const { reanimated, demoted } = out;
+  if (reanimated.length === 0 && demoted.length === 0) {
+    return (
+      `Constraint saved: "${out.reason}".\n` +
+      `No parked or killed ideas to re-evaluate yet — add some ideas, park or kill a few, then run /constraint again to trigger the reflow.`
+    );
+  }
+  const lines: string[] = [`Constraint: "${out.reason}"`];
+  if (reanimated.length) lines.push(`♻️ Reanimated: ${reanimated.map((id) => `#${id}`).join(", ")}`);
+  if (demoted.length) lines.push(`⬇️ Demoted: ${demoted.map((id) => `#${id}`).join(", ")}`);
+  return lines.join("\n");
 }
 
 /**

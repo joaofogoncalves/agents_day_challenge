@@ -28,6 +28,18 @@ export default function App() {
   // me = {} when anonymous, { login, avatar_url, can_vote, can_edit } when signed in.
   const [me, setMe] = useState(null);
 
+  const refreshBoard = useCallback(() => {
+    fetchBoard()
+      .then((board) => {
+        setIdeas(board.ideas ?? []);
+        setBoardName(board.name ?? null);
+        setDeadline(board.deadline ?? null);
+        setTeam(board.team ?? []);
+        setContext(board.context ?? []);
+      })
+      .catch(() => {/* silent on poll errors */});
+  }, []);
+
   useEffect(() => {
     Promise.all([fetchBoard(), fetchMe()])
       .then(([board, who]) => {
@@ -40,7 +52,12 @@ export default function App() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+
+    if (!usingMock) {
+      const id = setInterval(refreshBoard, 10_000);
+      return () => clearInterval(id);
+    }
+  }, [refreshBoard]);
 
   const byStage = useMemo(() => {
     const map = { bucket: [], candidates: [], selected: [] };
