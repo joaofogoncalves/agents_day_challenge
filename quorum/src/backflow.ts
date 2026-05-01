@@ -42,6 +42,36 @@ export async function reanimate(
     }
   }
 
+  // Append a summary event then broadcast per-idea phase changes + summary.
+  agent.appendEvent(null, "reanimated", {
+    by: { kind: "agent" },
+    reanimated: reanimated.length,
+    demoted: demoted.length,
+    reason: constraint,
+  });
+
+  // Broadcast a constraint_applied summary.
+  const reanimatedUids = reanimated.map((rid) => `qrm_${String(rid).padStart(6, "0")}`);
+  const demotedUids = demoted.map((rid) => `qrm_${String(rid).padStart(6, "0")}`);
+  const summaryRow = (agent.sql`SELECT id, created_at FROM events WHERE id = (SELECT MAX(id) FROM events)`)[0] as { id: number; created_at: number } | undefined;
+  if (summaryRow) {
+    const summaryActivity = agent.activityRowFromEvent({
+      event_id: summaryRow.id,
+      event_kind: "reanimated",
+      target_uid: null,
+      by: { kind: "agent" },
+      ts: summaryRow.created_at,
+      payload: { reanimated: reanimated.length, demoted: demoted.length, reason: constraint },
+    });
+    agent.broadcastWire({
+      kind: "constraint_applied",
+      reanimated: reanimatedUids,
+      demoted: demotedUids,
+      reason: constraint,
+      activity: summaryActivity,
+    });
+  }
+
   return {
     reanimated,
     demoted,

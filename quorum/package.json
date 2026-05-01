@@ -11,7 +11,9 @@
     "tail": "wrangler tail",
     "types": "wrangler types env.d.ts --include-runtime false",
     "check": "tsc --noEmit",
-    "dogfood": "tsx scripts/dogfood.ts"
+    "dogfood": "tsx scripts/dogfood.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "agents": "^0.12.0",
@@ -23,6 +25,7 @@
     "@cloudflare/workers-types": "^4.20260430.1",
     "tsx": "^4.19.3",
     "typescript": "^5.6.0",
+    "vitest": "^4.1.5",
     "wrangler": "^4.87.0"
   }
 }

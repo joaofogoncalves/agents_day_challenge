@@ -9,6 +9,7 @@
  */
 
 import { Agent } from "agents";
+import type { Connection, ConnectionContext } from "agents";
 import { webhookCallback } from "grammy";
 import type { Bot } from "grammy";
 import { createBot } from "./telegram";
@@ -33,6 +34,8 @@ import { complete, loadPrompt, parseJson, type ChatMessage } from "./llm";
 import { parseDeadline, formatDeadline } from "./deadline";
 import scoringPrompt from "../prompts/scoring.md";
 import planPrompt from "../prompts/plan.md";
+import type { Wire, ActorRef, Presence, ActivityRow, SocketAttachment } from "./wire";
+import { renderSummary } from "./summary";
 
 type NudgeKind = "soon" | "today" | "now";
 
@@ -210,6 +213,21 @@ export class QuorumAgent extends Agent<Env> {
     `;
     const id = rows[0]!.id;
     this.appendEvent(id, "idea_added", { text, author_id: authorId });
+    // Broadcast for live board (after the events row is committed).
+    const eventRow = (this.sql`SELECT id, created_at FROM events WHERE id = (SELECT MAX(id) FROM events)`)[0] as { id: number; created_at: number } | undefined;
+    const ideaRow = this.getBoard(null).find((i) => i.uid === `qrm_${String(id).padStart(6, "0")}`);
+    if (eventRow && ideaRow) {
+      const by: ActorRef = { kind: "agent" };
+      const activity = this.activityRowFromEvent({
+        event_id: eventRow.id,
+        event_kind: "idea_added",
+        target_uid: ideaRow.uid,
+        by,
+        ts: eventRow.created_at,
+        payload: {},
+      });
+      this.broadcastWire({ kind: "idea_added", idea: ideaRow, activity });
+    }
     return { id };
   }
 
@@ -264,7 +282,23 @@ export class QuorumAgent extends Agent<Env> {
       touched = true;
     }
     if (touched) {
-      this.appendEvent(id, "idea_edited", { editor, patch });
+      const by: ActorRef = (editor && editor !== "unknown")
+        ? { kind: "user", login: editor, avatar: "" }
+        : { kind: "agent" };
+      this.appendEvent(id, "idea_edited", { editor, patch, by });
+      const uid = `qrm_${String(id).padStart(6, "0")}`;
+      const eventRow = (this.sql`SELECT id, created_at FROM events WHERE id = (SELECT MAX(id) FROM events)`)[0] as { id: number; created_at: number } | undefined;
+      if (eventRow) {
+        const activity = this.activityRowFromEvent({
+          event_id: eventRow.id,
+          event_kind: "idea_edited",
+          target_uid: uid,
+          by,
+          ts: eventRow.created_at,
+          payload: { fields: Object.keys(patch) },
+        });
+        this.broadcastWire({ kind: "idea_edited", uid, patch, activity });
+      }
     }
     const after = this.sql<Idea>`SELECT * FROM ideas WHERE id = ${id}`;
     return this.toBoardIdea(after[0]!, this.hasVote(id, voterKey));
@@ -321,11 +355,31 @@ export class QuorumAgent extends Agent<Env> {
     const after = this.sql<{ votes: number }>`SELECT votes FROM ideas WHERE id = ${id}`;
     const votes = after[0]?.votes ?? 0;
     const voted = had.length === 0;
+    const actor: ActorRef = voterKey.startsWith("gh:")
+      ? { kind: "user", login: voterKey.slice(3), avatar: "" }
+      : voterKey.startsWith("anon:")
+        ? { kind: "anon", id: voterKey.slice(5) }
+        : { kind: "user", login: voterKey, avatar: "" };
     this.appendEvent(id, "idea_voted", {
       voter_key: voterKey,
       direction: voted ? "up" : "undo",
       new_total: votes,
+      by: actor,
+      voted,
     });
+    const uid = `qrm_${String(id).padStart(6, "0")}`;
+    const eventRow = (this.sql`SELECT id, created_at FROM events WHERE id = (SELECT MAX(id) FROM events)`)[0] as { id: number; created_at: number } | undefined;
+    if (eventRow) {
+      const activity = this.activityRowFromEvent({
+        event_id: eventRow.id,
+        event_kind: "idea_voted",
+        target_uid: uid,
+        by: actor,
+        ts: eventRow.created_at,
+        payload: { voted },
+      });
+      this.broadcastWire({ kind: "idea_voted", uid, votes, voter_key: voterKey, voted, activity });
+    }
     return { votes, voted };
   }
 
@@ -411,6 +465,20 @@ export class QuorumAgent extends Agent<Env> {
       WHERE id = ${id}
     `;
     this.appendEvent(id, "idea_phase_change", { old, new: status, reason });
+    const uid = `qrm_${String(id).padStart(6, "0")}`;
+    const eventRow = (this.sql`SELECT id, created_at FROM events WHERE id = (SELECT MAX(id) FROM events)`)[0] as { id: number; created_at: number } | undefined;
+    if (eventRow) {
+      const by: ActorRef = { kind: "agent" };
+      const activity = this.activityRowFromEvent({
+        event_id: eventRow.id,
+        event_kind: "idea_phase_change",
+        target_uid: uid,
+        by,
+        ts: eventRow.created_at,
+        payload: { status, reason },
+      });
+      this.broadcastWire({ kind: "idea_phase_change", uid, status, activity });
+    }
     return true;
   }
 
@@ -738,6 +806,22 @@ export class QuorumAgent extends Agent<Env> {
       reason,
       required_skills: parsed?.required_skills ?? [],
     });
+    const uid = `qrm_${String(id).padStart(6, "0")}`;
+    const ideaRow = this.getBoard(null).find((i) => i.uid === uid);
+    const eventRow = (this.sql`SELECT id, created_at FROM events WHERE id = (SELECT MAX(id) FROM events)`)[0] as { id: number; created_at: number } | undefined;
+    if (ideaRow && eventRow) {
+      const by: ActorRef = { kind: "agent" };
+      const activity = this.activityRowFromEvent({
+        event_id: eventRow.id,
+        event_kind: "scored",
+        target_uid: uid,
+        by,
+        ts: eventRow.created_at,
+        payload: { score: ideaRow.score },
+      });
+      const components = { team, resource, market };
+      this.broadcastWire({ kind: "scored", uid, score: ideaRow.score, components, activity });
+    }
     return { team, resource, market, votes: idea.votes ?? 0, reason };
   }
 
@@ -1133,7 +1217,7 @@ export class QuorumAgent extends Agent<Env> {
 
   // ── Events (audit log) ───────────────────────────────────────────
 
-  private appendEvent(
+  appendEvent(
     ideaId: number | null,
     type: EventType,
     payload: Record<string, unknown>,
@@ -1144,6 +1228,165 @@ export class QuorumAgent extends Agent<Env> {
       INSERT INTO events (idea_id, event_type, payload, created_at)
       VALUES (${ideaId}, ${type}, ${json}, ${now})
     `;
+  }
+
+  // ── Realtime board: broadcast + WS lifecycle ──────────────────────
+
+  /**
+   * Send a typed event to every connected WebSocket on this DO.
+   * Named broadcastWire to avoid conflict with the partyserver base broadcast().
+   */
+  broadcastWire(event: Wire): void {
+    // Inherited base class broadcast(string) — fans out to all open connections.
+    this.broadcast(JSON.stringify(event));
+  }
+
+  /**
+   * Compose an ActivityRow from a just-appended events row.
+   * Caller supplies the freshly-inserted event id and the actor that
+   * caused it, since renderSummary needs both.
+   */
+  activityRowFromEvent(args: {
+    event_id: number;
+    event_kind: import("./schema").EventType;
+    target_uid: string | null;
+    by: ActorRef;
+    ts: number;
+    payload: Record<string, unknown>;
+  }): ActivityRow {
+    return {
+      id: args.event_id,
+      event_kind: args.event_kind,
+      summary: renderSummary({
+        event_kind: args.event_kind,
+        target_uid: args.target_uid,
+        by: args.by,
+        payload: args.payload,
+      }),
+      by: args.by,
+      ts: args.ts,
+      target_uid: args.target_uid,
+    };
+  }
+
+  /**
+   * Snapshot of currently-connected actors. Used in the hello message
+   * sent by onConnect.
+   */
+  currentPresence(): Presence[] {
+    const out: Presence[] = [];
+    for (const conn of this.getConnections<SocketAttachment>()) {
+      const att = conn.state;
+      if (!att) continue;
+      out.push({
+        connection_id: att.connection_id,
+        actor: att.login
+          ? { kind: "user", login: att.login, avatar: att.avatar ?? "" }
+          : { kind: "anon", id: att.voter_key.startsWith("anon:") ? att.voter_key.slice(5) : att.voter_key },
+        joined_at: att.joined_at,
+      });
+    }
+    return out;
+  }
+
+  // Partyserver WebSocket lifecycle hooks.
+
+  override async onConnect(connection: Connection<SocketAttachment>, ctx: ConnectionContext): Promise<void> {
+    const req = ctx.request;
+    const voterKey = req.headers.get("x-quorum-voter") ?? "";
+    const login = req.headers.get("x-quorum-login") || null;
+    const avatar = req.headers.get("x-quorum-avatar") || null;
+    if (!voterKey) {
+      try { connection.close(1008, "missing identity"); } catch { /* already closed */ }
+      return;
+    }
+
+    // Soft cap at 50 sockets per DO. Existing connections + this new one.
+    if (Array.from(this.getConnections()).length > 50) {
+      try { connection.close(1013, "too many connections"); } catch { /* ignore */ }
+      return;
+    }
+
+    const attachment: SocketAttachment = {
+      connection_id: connection.id,
+      voter_key: voterKey,
+      login,
+      avatar,
+      joined_at: Date.now(),
+    };
+    connection.setState(attachment);
+
+    // Build hello snapshot from the DB.
+    const lastEventRow = (this.sql`SELECT COALESCE(MAX(id), 0) AS id FROM events`)[0] as { id: number } | undefined;
+    const last_event_id = lastEventRow?.id ?? 0;
+
+    const activityRows = this.sql`
+      SELECT id, event_type, idea_id, payload, created_at
+      FROM events
+      ORDER BY id DESC
+      LIMIT 50
+    ` as Array<{ id: number; event_type: string; idea_id: number | null; payload: string | null; created_at: number }>;
+
+    const activity: ActivityRow[] = activityRows
+      .reverse()
+      .map((row) => {
+        let payload: Record<string, unknown> = {};
+        if (row.payload) {
+          try { payload = JSON.parse(row.payload); } catch { payload = {}; }
+        }
+        const by = (payload.by as ActorRef | undefined) ?? { kind: "agent" };
+        const target_uid = row.idea_id != null
+          ? `qrm_${String(row.idea_id).padStart(6, "0")}`
+          : null;
+        return this.activityRowFromEvent({
+          event_id: row.id,
+          event_kind: row.event_type as import("./schema").EventType,
+          target_uid,
+          by,
+          ts: row.created_at,
+          payload,
+        });
+      });
+
+    const helloActor: ActorRef = login
+      ? { kind: "user", login, avatar: avatar ?? "" }
+      : { kind: "anon", id: voterKey.startsWith("anon:") ? voterKey.slice(5) : voterKey };
+
+    const helloMsg: Wire = {
+      kind: "hello",
+      snapshot: {
+        ideas: this.getBoard(voterKey),
+        activity,
+        presence: this.currentPresence(),
+        me: {
+          voter_key: voterKey,
+          login,
+          can_edit: req.headers.get("x-quorum-editor") === "1",
+        },
+        last_event_id,
+      },
+    };
+
+    try { connection.send(JSON.stringify(helloMsg)); } catch { /* unlikely on a fresh connection */ }
+
+    // Tell everyone else this person joined (NOT the new connection itself —
+    // pass `[connection.id]` to `broadcast`'s `without` filter via the base
+    // class. Easier: send presence_join to all (including self), client reducer
+    // dedupes by connection_id).
+    this.broadcastWire({
+      kind: "presence_join",
+      presence: {
+        connection_id: connection.id,
+        actor: helloActor,
+        joined_at: attachment.joined_at,
+      },
+    });
+  }
+
+  override async onClose(connection: Connection<SocketAttachment>, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
+    const att = connection.state;
+    if (!att) return;
+    this.broadcastWire({ kind: "presence_leave", connection_id: att.connection_id });
   }
 }
 
