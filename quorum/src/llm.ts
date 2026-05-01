@@ -47,6 +47,26 @@ export async function complete(
   throw new AggregateError(errors, "all LLM models failed");
 }
 
+/**
+ * Split a prompt template on SYSTEM: / USER: markers and substitute
+ * {{name}} placeholders in the user portion.
+ * The system portion is taken verbatim — no placeholder substitution.
+ */
+export function loadPrompt(
+  template: string,
+  vars: Record<string, string>,
+): { system: string; user: string } {
+  const sysIdx = template.indexOf("SYSTEM:");
+  const userIdx = template.indexOf("USER:");
+  if (sysIdx === -1 || userIdx === -1 || userIdx < sysIdx) {
+    throw new Error("prompt missing SYSTEM:/USER: markers");
+  }
+  const system = template.slice(sysIdx + "SYSTEM:".length, userIdx).trim();
+  const userTemplate = template.slice(userIdx + "USER:".length).trim();
+  const user = userTemplate.replace(/\{\{(\w+)\}\}/g, (_, name) => vars[name] ?? "");
+  return { system, user };
+}
+
 /** Safe JSON parse for LLM output. Strips ```json fences if present. */
 export function parseJson<T>(raw: string): T | null {
   const cleaned = raw
