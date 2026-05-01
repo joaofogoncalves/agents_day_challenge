@@ -197,7 +197,7 @@ export default {
       }
 
       return stub.fetch(
-        new Request(new URL("/socket", request.url).toString(), {
+        new Request(new URL(`/parties/quorum-agent/${encodeURIComponent(chat)}`, request.url).toString(), {
           method: "GET",
           headers,
         }),

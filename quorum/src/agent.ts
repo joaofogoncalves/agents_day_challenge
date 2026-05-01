@@ -9,6 +9,7 @@
  */
 
 import { Agent } from "agents";
+import type { Connection, ConnectionContext } from "agents";
 import { webhookCallback } from "grammy";
 import type { Bot } from "grammy";
 import { createBot } from "./telegram";
@@ -94,106 +95,6 @@ export class QuorumAgent extends Agent<Env> {
     // through the Worker.
     const callerVoterKey = request.headers.get("x-quorum-voter") || null;
     const callerEditor = request.headers.get("x-quorum-editor") === "1";
-
-    if (url.pathname === "/socket") {
-      if (request.headers.get("Upgrade") !== "websocket") {
-        return new Response("expected websocket upgrade", { status: 426 });
-      }
-
-      // 50-socket soft cap per DO.
-      if (this.ctx.getWebSockets().length >= 50) {
-        return new Response("too many connections", { status: 503 });
-      }
-
-      const voterKey = request.headers.get("x-quorum-voter") ?? "";
-      const login = request.headers.get("x-quorum-login") || null;
-      const avatar = request.headers.get("x-quorum-avatar") || null;
-      if (!voterKey) return new Response("missing identity", { status: 400 });
-
-      const pair = new WebSocketPair();
-      const client = pair[0];
-      const server = pair[1];
-
-      const attachment: SocketAttachment = {
-        connection_id: crypto.randomUUID(),
-        voter_key: voterKey,
-        login,
-        avatar,
-        joined_at: Date.now(),
-      };
-      server.serializeAttachment(attachment);
-
-      this.ctx.acceptWebSocket(server);
-
-      // Build the hello snapshot from the DB.
-      const lastEventRow = (this.sql`SELECT COALESCE(MAX(id), 0) AS id FROM events`)[0] as { id: number } | undefined;
-      const last_event_id = lastEventRow?.id ?? 0;
-
-      const activityRows = this.sql`
-        SELECT id, event_type, idea_id, payload, created_at
-        FROM events
-        ORDER BY id DESC
-        LIMIT 50
-      ` as Array<{ id: number; event_type: string; idea_id: number | null; payload: string | null; created_at: number }>;
-
-      const activity: ActivityRow[] = activityRows
-        .reverse() // we want newest LAST in the snapshot (chronological)
-        .map((row) => {
-          let payload: Record<string, unknown> = {};
-          if (row.payload) {
-            try { payload = JSON.parse(row.payload); } catch { payload = {}; }
-          }
-          const by = (payload.by as ActorRef | undefined) ?? { kind: "agent" };
-          const target_uid = row.idea_id != null
-            ? `qrm_${String(row.idea_id).padStart(6, "0")}`
-            : null;
-          return this.activityRowFromEvent({
-            event_id: row.id,
-            event_kind: row.event_type as import("./schema").EventType,
-            target_uid,
-            by,
-            ts: row.created_at,
-            payload,
-          });
-        });
-
-      const helloActor: ActorRef = login
-        ? { kind: "user", login, avatar: avatar ?? "" }
-        : { kind: "anon", id: voterKey.startsWith("anon:") ? voterKey.slice(5) : voterKey };
-
-      const helloMsg: Wire = {
-        kind: "hello",
-        snapshot: {
-          ideas: this.getBoard(voterKey),
-          activity,
-          presence: this.currentPresence(),
-          me: {
-            voter_key: voterKey,
-            login,
-            can_edit: request.headers.get("x-quorum-editor") === "1",
-          },
-          last_event_id,
-        },
-      };
-
-      try {
-        server.send(JSON.stringify(helloMsg));
-      } catch {
-        // unlikely on a freshly-accepted socket
-      }
-
-      // Tell everyone else this person joined.
-      this.broadcastWire({
-        kind: "presence_join",
-        presence: {
-          connection_id: attachment.connection_id,
-          actor: helloActor,
-          joined_at: attachment.joined_at,
-        },
-      });
-
-      return new Response(null, { status: 101, webSocket: client });
-    }
 
     if (url.pathname === "/board" && request.method === "GET") {
       // Forwarded by the Worker only when the request carried a valid GitHub
@@ -1325,19 +1226,11 @@ export class QuorumAgent extends Agent<Env> {
 
   /**
    * Send a typed event to every connected WebSocket on this DO.
-   * Hibernation-aware: reads from ctx.getWebSockets() each call (no
-   * in-memory socket map) and ignores send errors on dead sockets.
    * Named broadcastWire to avoid conflict with the partyserver base broadcast().
    */
   broadcastWire(event: Wire): void {
-    const frame = JSON.stringify(event);
-    for (const ws of this.ctx.getWebSockets()) {
-      try {
-        ws.send(frame);
-      } catch {
-        // Dead socket — ctx.getWebSockets() will drop it on the next call.
-      }
-    }
+    // Inherited base class broadcast(string) — fans out to all open connections.
+    this.broadcast(JSON.stringify(event));
   }
 
   /**
@@ -1370,12 +1263,12 @@ export class QuorumAgent extends Agent<Env> {
 
   /**
    * Snapshot of currently-connected actors. Used in the hello message
-   * sent by the /socket route (Task 5).
+   * sent by onConnect.
    */
-  private currentPresence(): Presence[] {
+  currentPresence(): Presence[] {
     const out: Presence[] = [];
-    for (const ws of this.ctx.getWebSockets()) {
-      const att = ws.deserializeAttachment() as SocketAttachment | null;
+    for (const conn of this.getConnections<SocketAttachment>()) {
+      const att = conn.state;
       if (!att) continue;
       out.push({
         connection_id: att.connection_id,
@@ -1388,21 +1281,104 @@ export class QuorumAgent extends Agent<Env> {
     return out;
   }
 
-  // Hibernating WebSockets lifecycle hooks. They run on cold-wake too,
-  // hence reading per-connection state from ws.deserializeAttachment.
+  // Partyserver WebSocket lifecycle hooks.
 
-  async webSocketMessage(_ws: WebSocket, _msg: string | ArrayBuffer): Promise<void> {
-    // v1: clients send no messages over the socket. Ignore.
+  override async onConnect(connection: Connection<SocketAttachment>, ctx: ConnectionContext): Promise<void> {
+    const req = ctx.request;
+    const voterKey = req.headers.get("x-quorum-voter") ?? "";
+    const login = req.headers.get("x-quorum-login") || null;
+    const avatar = req.headers.get("x-quorum-avatar") || null;
+    if (!voterKey) {
+      try { connection.close(1008, "missing identity"); } catch { /* already closed */ }
+      return;
+    }
+
+    // Soft cap at 50 sockets per DO. Existing connections + this new one.
+    if (Array.from(this.getConnections()).length > 50) {
+      try { connection.close(1013, "too many connections"); } catch { /* ignore */ }
+      return;
+    }
+
+    const attachment: SocketAttachment = {
+      connection_id: connection.id,
+      voter_key: voterKey,
+      login,
+      avatar,
+      joined_at: Date.now(),
+    };
+    connection.setState(attachment);
+
+    // Build hello snapshot from the DB.
+    const lastEventRow = (this.sql`SELECT COALESCE(MAX(id), 0) AS id FROM events`)[0] as { id: number } | undefined;
+    const last_event_id = lastEventRow?.id ?? 0;
+
+    const activityRows = this.sql`
+      SELECT id, event_type, idea_id, payload, created_at
+      FROM events
+      ORDER BY id DESC
+      LIMIT 50
+    ` as Array<{ id: number; event_type: string; idea_id: number | null; payload: string | null; created_at: number }>;
+
+    const activity: ActivityRow[] = activityRows
+      .reverse()
+      .map((row) => {
+        let payload: Record<string, unknown> = {};
+        if (row.payload) {
+          try { payload = JSON.parse(row.payload); } catch { payload = {}; }
+        }
+        const by = (payload.by as ActorRef | undefined) ?? { kind: "agent" };
+        const target_uid = row.idea_id != null
+          ? `qrm_${String(row.idea_id).padStart(6, "0")}`
+          : null;
+        return this.activityRowFromEvent({
+          event_id: row.id,
+          event_kind: row.event_type as import("./schema").EventType,
+          target_uid,
+          by,
+          ts: row.created_at,
+          payload,
+        });
+      });
+
+    const helloActor: ActorRef = login
+      ? { kind: "user", login, avatar: avatar ?? "" }
+      : { kind: "anon", id: voterKey.startsWith("anon:") ? voterKey.slice(5) : voterKey };
+
+    const helloMsg: Wire = {
+      kind: "hello",
+      snapshot: {
+        ideas: this.getBoard(voterKey),
+        activity,
+        presence: this.currentPresence(),
+        me: {
+          voter_key: voterKey,
+          login,
+          can_edit: req.headers.get("x-quorum-editor") === "1",
+        },
+        last_event_id,
+      },
+    };
+
+    try { connection.send(JSON.stringify(helloMsg)); } catch { /* unlikely on a fresh connection */ }
+
+    // Tell everyone else this person joined (NOT the new connection itself —
+    // pass `[connection.id]` to `broadcast`'s `without` filter via the base
+    // class. Easier: send presence_join to all (including self), client reducer
+    // dedupes by connection_id).
+    this.broadcastWire({
+      kind: "presence_join",
+      presence: {
+        connection_id: connection.id,
+        actor: helloActor,
+        joined_at: attachment.joined_at,
+      },
+    });
   }
 
-  async webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
-    const att = ws.deserializeAttachment() as SocketAttachment | null;
+  override async onClose(connection: Connection<SocketAttachment>, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
+    const att = connection.state;
     if (!att) return;
     this.broadcastWire({ kind: "presence_leave", connection_id: att.connection_id });
-  }
-
-  async webSocketError(_ws: WebSocket, _err: unknown): Promise<void> {
-    // close hook will follow; no broadcast here.
   }
 }
 
