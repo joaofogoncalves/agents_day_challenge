@@ -4,7 +4,7 @@
 
 ## Status (demo day)
 
-The board prototype shipped end-to-end and is **live in production** at `https://quorum.joao-f-o-goncalves.workers.dev/?chat=<id>`. It reads the same `QuorumAgent` SQLite that the Telegram bot writes to — one source of truth. `DEFAULT_BOARD_CHAT` now points at the demo group (`-5224131572`), so the bare URL loads the demo board.
+The board is **shipped, multiplayer-live, and demo-ready** at `https://quorum.joao-f-o-goncalves.workers.dev/?chat=<id>`. It reads the same `QuorumAgent` SQLite that the Telegram bot writes to — one source of truth. `DEFAULT_BOARD_CHAT` points at the demo group (`-5224131572`), so the bare URL loads the demo board. Realtime updates over WebSocket landed in `03a61d9` (presence pile + activity rail + reflow on `/constraint`); vote-bar live update on click in `d80efe3`.
 
 The original plan had your work split between `src/format.ts` (Telegram message templates) inside the bot Worker and `src/web/` (server-rendered `/g/<token>` view). That changed:
 
@@ -27,18 +27,19 @@ The original plan had your work split between `src/format.ts` (Telegram message 
 - Click-to-edit modal: `name` + `long`, with optimistic save + rollback
 - `web/src/api.js` reads `?chat=` from the page URL, forwards to `/api/board?chat=...`
 - Mock fallback: empty `VITE_API_BASE` → `/mock.json` so dev works without backend
+- **Realtime multiplayer board** — WebSocket via `useLiveBoard`, presence pile, activity rail, REST fallback on disconnect
+- Vote-bar count + bar fill update live on click (no refresh needed)
 - Live at the production URL — the board reflects the same DO state as Telegram
 
 ## What's next
 
-In rough priority order:
+Nothing left for the demo. The "money moment" (cards reflowing live on `/constraint`) works end-to-end.
 
-1. **Polling for live board updates.** **Currently in flight.** The demo's "money moment" is `/constraint we lost a backend dev` reshuffling cards live. Without polling the user has to refresh, which kills the moment. Polling every ~5s on `/api/board` is the cheap fix.
-2. **Empty state copy.** When the board is empty, the placeholder should suggest sending `/idea ...` in chat.
-3. **Error surfacing.** If `/api/board` 5xx's, show something — silent failure can derail the demo if anything regresses.
-4. **Telegram message polish (low priority).** `quorum/src/format.ts` has placeholder text for `/why`, `/team`, `/constraint`. The `/constraint` reply is the demo highlight — make that one line readable on a phone screen if you have spare cycles.
+Post-demo polish (not load-bearing — captured here so nothing evaporates):
 
-Demo is live (no recording needed).
+- Empty state copy when the board has zero ideas.
+- Error surfacing if `/api/board` 5xx's.
+- `quorum/src/format.ts` Telegram reply polish — `/why`, `/team`, `/constraint` still ship placeholder text.
 
 ## Cloudflare access for `web/` deploys
 
@@ -55,5 +56,5 @@ Demo is live (no recording needed).
 - ✅ Board renders 3 columns from real API
 - ✅ Edit-modal `PATCH` round-trips through the DO
 - ✅ Deployed to production, single URL
-- ⚠️ **In flight**: polling so the board updates after `/constraint`
-- ⚠️ **Open**: error/empty states have copy
+- ✅ Realtime updates after `/constraint` — WebSocket multiplayer with REST fallback
+- ⚠️ **Post-demo**: error/empty states have copy

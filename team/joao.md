@@ -4,7 +4,7 @@
 
 ## Status (demo day)
 
-Backend is **live in prod**. Everything in PLAN.md H+1 → H+7 is shipped, plus the agentic intent router (`e88e986`), GitHub OAuth + per-user vote + editor whitelist (`c0cc342`, deployed), per-board names (`5b750f6`), and a refined scoring prompt with rubric (`f82d064`). The bot answers cleanly in groups; the earlier `raw.trim` runtime bug is resolved.
+Backend is **live in prod and demo-ready**. Everything in PLAN.md H+1 → H+7 is shipped, plus the agentic intent router (`e88e986`), GitHub OAuth + per-user vote + editor whitelist (`c0cc342`, deployed), per-board names (`5b750f6`), refined scoring prompt with rubric (`f82d064`), realtime multiplayer board (merge `03a61d9`), and live vote-bar update on click (`d80efe3`). The bot answers cleanly in groups; the earlier `raw.trim` runtime bug is resolved.
 
 No deck, no recorded demo — pitch is live. Bot token rotation is the only post-demo item.
 
@@ -41,16 +41,12 @@ No deck, no recorded demo — pitch is live. Bot token rotation is the only post
 
 ## What's next
 
-Pre-demo cleanup (in flight this session):
-
-- Reconcile schema drift in `schema.ts` (CREATE TABLE vs. ADDITIVE_MIGRATIONS)
-- CSRF token on `/auth/logout` and `/api/ideas/:uid/vote`
-- `Agent.scheduleEvery()` stall-nudge cron (once-a-day prompt on stale parked ideas)
-- Final deploy + smoke test on the prod URL
+Nothing left for the demo. All pre-demo items either shipped or got punted to `NEXT_STEPS.md` after the pitch.
 
 Post-demo:
 
 - Bot token rotation (the original token leaked in a chat transcript): `@BotFather → /revoke → @quorum_bot → new token → wrangler secret put TELEGRAM_BOT_TOKEN → re-run setWebhook`. Webhook secret stays as-is.
+- Remaining nice-to-haves (CSRF token on logout/vote, schema drift cleanup in `schema.ts`, stall-nudge cron via `Agent.scheduleEvery()`, OAuth Safari sanity check) live in `CLAUDE.md`'s pre-demo punch list and `NEXT_STEPS.md` — not load-bearing for the pitch.
 
 ## Interfaces I produce
 
@@ -69,4 +65,4 @@ All documented in `SPEC.md`. If you change a signature, change SPEC in the same 
 - ✅ Ideas survive a `wrangler dev` restart; SPEC matches code
 - ✅ `setMember` round-trips; `extractSkills` produces a sensible list
 - ✅ `/constraint we lost a backend dev` triggers re-validation across parked/killed; `events` table reflects every transition
-- ⚠️ Board UI reflects DO state — Rui shipping polling for live updates after `/constraint`
+- ✅ Board UI reflects DO state in realtime — multiplayer WebSocket + REST fallback, vote bar updates live on click

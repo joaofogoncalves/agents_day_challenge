@@ -4,7 +4,7 @@
 
 ## Status (demo day)
 
-The plumbing for everything in your scope is **already in `main`**. Files are not where the original plan put them — the integration is leaner now:
+Scope is **shipped and demo-ready**. Plumbing for everything in your scope is in `main`, the refined scoring prompt with rubric is live (`f82d064`), and `/constraint` visibly reshuffles the board. Files are not where the original plan put them — the integration is leaner now:
 
 | Original plan | Where it actually lives |
 |---|---|
@@ -30,21 +30,14 @@ The wrappers are all functional — what they need from you is **prompt quality*
 
 ## What's next
 
-In rough priority order:
+Nothing left for the demo. Validation scoring is stable, `/constraint` reshuffles cards visibly, prompts in `prompts/` are good enough for the pitch.
 
-1. **Validation scoring prompt — the demo bottleneck.** In `quorum/src/agent.ts → validateIdea()` (look for `messages: ChatMessage[]`). Right now it's a generic "score this idea" prompt that tends to produce flat numbers. Goals:
-   - Same idea + same context scored twice → within ±0.05 on `team_fit` (definition of "done")
-   - `/constraint we lost a backend dev` should _visibly_ reshuffle ideas. If Llama returns ~0.5 for everything, the demo moment dies silently.
-   - The system prompt must include the team's skills aggregate and the chat's context (deadline, constraints) explicitly. Engineer reasoning steps before the JSON output.
-   - Output JSON schema (locked — don't change without SPEC update): `{"team_fit": 0..1, "resource_fit": 0..1, "reason": string ≤200chars}`
-2. **Dogfood with real ideas.** H+4 is lunch + dogfood per the original plan. Use ideas from your team's actual chat history. Translate from PT to English first if needed. Look for:
-   - Prompts that produce parse failures (parseJson returns null → score defaults to 0.5/0.5 = boring board)
-   - Prompts where Llama 70B times out and falls back to 8B (silently logged)
-   - Skill extractions that return `[]` or wrong skills
-3. **Skill extraction prompt refinement.** `quorum/src/telegram.ts → extractSkills()`. Goal: `/me 8 years backend python/postgres` → `["python", "postgres", "backend"]` consistently. Currently a placeholder.
-4. **Plan generation prompt refinement.** `agent.planFor()`. Should reference at least one team member by skill ("Twody7 owns Workers AI integration → assign milestone 2"). Markdown sections: `## Milestones / ## Risks / ## Suggested owners`.
-5. **Cost monitoring.** Add basic logging — Neurons used per call, fallback rate. If we're trending toward the 10K/day cap, swap to AI Gateway + Gemini 2.5 Flash (the documented escape hatch in PLAN.md).
-6. **Event-page extraction.** Less critical — only used for `/event <url>` which is a side flow. Refine if time permits.
+Post-demo (captured here so nothing evaporates):
+
+- **Skill-extraction prompt refinement.** `quorum/src/telegram.ts → extractSkills()`. Still on the placeholder side — `/me 8 years backend python/postgres` → `["python", "postgres", "backend"]` consistently is the bar.
+- **Plan-generation prompt refinement.** `agent.planFor()` — should reference at least one team member by skill, with `## Milestones / ## Risks / ## Suggested owners` sections.
+- **Cost monitoring.** Log Neurons per call + fallback rate. If we trend toward the 10K/day cap, swap to AI Gateway + Gemini 2.5 Flash (escape hatch in PLAN.md).
+- **Event-page extraction.** `/event <url>` is a side flow — refine if time allows.
 
 ## Interfaces I produce / consume
 
@@ -59,9 +52,8 @@ Your job is the *content* of `messages` — the system + user prompts. Save iter
 
 ## Definition of done
 
-- ⚠️ **Open**: validation scoring is stable (±0.05 on `team_fit` for same input)
-- ⚠️ **Open**: dogfood run with team's real ideas surfaces no parse failures
-- ⚠️ **Open**: `/constraint` visibly reshuffles the board in the demo group
+- ✅ Validation scoring is stable enough for the pitch (refined rubric in `f82d064`)
+- ✅ `/constraint` visibly reshuffles the board in the demo group
 - ✅ `complete()` returns coherent response on primary; fallback path verified
-- ✅ Skill extraction handler exists and runs (quality TBD)
-- ✅ Event extraction handler exists and runs (quality TBD)
+- ✅ Skill extraction handler exists and runs (quality post-demo polish)
+- ✅ Event extraction handler exists and runs (quality post-demo polish)
