@@ -41,6 +41,7 @@ This is a 1-day build with three people working concurrently. To minimize merge 
 - **Never revert someone else's commit** to fix a break — fix it forward in the next commit. Reverts in a 1-day build are wasted time.
 - **Conflict resolution: whoever pushes second.** Ping the other person in chat.
 - If `git push` to main is blocked by a hook/policy, surface it to the team immediately so it can be unblocked at session start (path: settings.json permission rule). Do **not** silently fall back to long-lived branches — the workflow assumes main-trunk.
+- Before any push make sure that any information worth documenting for the other members in the team is properly documented on CLAUDE.md, PLAN.md or SPEC.md. Naming conventions, nomenclature, taxonomy etc.
 
 ### Project-tracker bot
 
