@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { fetchBoard, fetchMe, patchIdea, voteIdea, logout, patchBoard, usingMock } from './api.js';
+import {
+  fetchBoard,
+  fetchMe,
+  patchIdea,
+  voteIdea,
+  logout,
+  patchBoard,
+  clearConstraints,
+  usingMock,
+} from './api.js';
 
 const COLUMNS = [
   { id: 'bucket', label: 'Bucket', hint: 'raw ideas, unconverged' },
@@ -89,6 +98,20 @@ export default function App() {
   const canEdit = !!me?.can_edit;
   const canVote = !!me?.can_vote;
 
+  // Editor-only: wipe both the singular `constraint` and the JSON-array
+  // `constraints` rows. Optimistic — drop them locally, restore on failure.
+  const clearAllConstraints = useCallback(async () => {
+    const prev = context;
+    setContext((cur) => cur.filter((e) => e.key !== 'constraints' && e.key !== 'constraint'));
+    try {
+      await clearConstraints();
+    } catch (e) {
+      console.error('clear constraints failed', e);
+      setError(e.message);
+      setContext(prev);
+    }
+  }, [context]);
+
   // Optimistic deadline save. Empty string clears.
   const saveDeadline = useCallback(async (next) => {
     const cleaned = (next ?? '').trim();
@@ -116,7 +139,13 @@ export default function App() {
       />
 
       <main className="body">
-        <Rail team={team} context={context} loading={loading} />
+        <Rail
+          team={team}
+          context={context}
+          loading={loading}
+          canEdit={canEdit}
+          onClearConstraints={clearAllConstraints}
+        />
         <section className="board">
           {COLUMNS.map((col, idx) => (
             <Column
@@ -318,7 +347,10 @@ function GhMark() {
   );
 }
 
-function Rail({ team, context, loading }) {
+function Rail({ team, context, loading, canEdit, onClearConstraints }) {
+  const hasConstraints = context.some(
+    (e) => e.key === 'constraints' || e.key === 'constraint',
+  );
   return (
     <aside className="rail">
       <section className="rail__section">
@@ -338,7 +370,7 @@ function Rail({ team, context, loading }) {
             ))}
           </ul>
         )}
-        <p className="rail__hint">/me &lt;skills&gt; · /gh &lt;handle&gt; in chat</p>
+        <p className="rail__hint">join chat or sign in with github to appear here</p>
       </section>
 
       <section className="rail__section">
@@ -346,6 +378,16 @@ function Rail({ team, context, loading }) {
           <span className="rail__num">B</span>
           <h2 className="rail__title">Context</h2>
           <span className="rail__count">{context.length}</span>
+          {canEdit && hasConstraints && (
+            <button
+              className="rail__clear"
+              type="button"
+              onClick={onClearConstraints}
+              title="Clear all constraints"
+            >
+              clear constraints
+            </button>
+          )}
         </div>
         {loading ? (
           <div className="rail__hint">loading…</div>

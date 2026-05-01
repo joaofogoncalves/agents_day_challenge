@@ -30,6 +30,7 @@ import {
 import { composite, MARKET_PLACEHOLDER, voteFit } from "./scoring";
 import { reanimate as runReanimate, type ReanimateResult } from "./backflow";
 import { complete, loadPrompt, parseJson, type ChatMessage } from "./llm";
+import { parseDeadline, formatDeadline } from "./deadline";
 import scoringPrompt from "../prompts/scoring.md";
 import planPrompt from "../prompts/plan.md";
 
@@ -93,6 +94,11 @@ export class QuorumAgent extends Agent<Env> {
     const callerEditor = request.headers.get("x-quorum-editor") === "1";
 
     if (url.pathname === "/board" && request.method === "GET") {
+      // Forwarded by the Worker only when the request carried a valid GitHub
+      // session — sign-in is enough to land on the team rail, /gh from
+      // Telegram is no longer required.
+      const callerLogin = request.headers.get("x-quorum-login");
+      if (callerLogin) this.noteGithubMember(callerLogin);
       return jsonResponse({
         ideas: this.getBoard(callerVoterKey),
         name: this.getBoardName(),
@@ -100,6 +106,12 @@ export class QuorumAgent extends Agent<Env> {
         team: this.getTeamForBoard(),
         context: this.getContextForBoard(),
       });
+    }
+
+    if (url.pathname === "/board/constraints" && request.method === "DELETE") {
+      if (!callerEditor) return jsonResponse({ error: "forbidden" }, 403);
+      this.clearConstraints();
+      return jsonResponse({ ok: true });
     }
 
     if (url.pathname === "/board" && request.method === "PATCH") {
@@ -525,18 +537,24 @@ export class QuorumAgent extends Agent<Env> {
   }
 
   /** Set or clear the deadline. Empty string clears. Returns the cleaned value.
-   *  Side effect: cancels any prior `nudgeDeadline` schedules; if the new
-   *  value parses to a future Date, schedules T-72h / T-24h / T-0 nudges.
-   *  Free-form strings that don't parse are stored verbatim but skip scheduling. */
+   *  Relative phrases ("in 2 hours", "tomorrow at 5pm", "next Friday") are
+   *  normalized to an absolute UTC string for storage so the board doesn't
+   *  show a stale-relative phrase forever; absolute inputs are also
+   *  re-rendered through the same formatter for consistency. Free-form
+   *  strings that don't parse are stored verbatim and skip scheduling.
+   *  Side effect: cancels any prior `nudgeDeadline` schedules; on a future
+   *  parsed date, schedules T-72h / T-24h / T-0 nudges. */
   async setDeadline(deadline: string): Promise<string | null> {
-    const cleaned = deadline.trim().slice(0, 200);
+    const trimmed = deadline.trim();
     const now = Date.now();
-    if (cleaned === "") {
+    if (trimmed === "") {
       this.sql`DELETE FROM context WHERE key = 'deadline'`;
       this.appendEvent(null, "context_changed", { deadline: null });
       await this.cancelDeadlineNudges();
       return null;
     }
+    const parsed = parseDeadline(trimmed, now);
+    const cleaned = (parsed ? formatDeadline(parsed) : trimmed).slice(0, 200);
     this.sql`
       INSERT INTO context (key, value, updated_at)
       VALUES ('deadline', ${cleaned}, ${now})
@@ -544,9 +562,8 @@ export class QuorumAgent extends Agent<Env> {
     `;
     this.appendEvent(null, "context_changed", { deadline: cleaned });
     await this.cancelDeadlineNudges();
-    const parsed = Date.parse(cleaned);
-    if (Number.isFinite(parsed)) {
-      await this.scheduleDeadlineNudges(new Date(parsed));
+    if (parsed && parsed.getTime() > now) {
+      await this.scheduleDeadlineNudges(parsed);
     }
     return cleaned;
   }
@@ -780,6 +797,65 @@ export class QuorumAgent extends Agent<Env> {
     this.sql`DELETE FROM members WHERE user_id = ${userId}`;
   }
 
+  /**
+   * Idempotently ensure a Telegram chatter is on the team. Called from
+   * `observe()` so anyone speaking in chat is auto-added — no `/me` needed.
+   * Inserts on first sight; backfills `display_name` later if it was missing.
+   * Doesn't touch skills/gh_user — those are still set explicitly via /me /gh.
+   */
+  noteTelegramMember(userId: string | null, displayName: string | null): void {
+    if (!userId || userId === "anon") return;
+    const existing = this.sql<{ display_name: string | null }>`
+      SELECT display_name FROM members WHERE user_id = ${userId}
+    `;
+    if (existing.length === 0) {
+      const now = Date.now();
+      this.sql`
+        INSERT INTO members (user_id, display_name, joined_at)
+        VALUES (${userId}, ${displayName}, ${now})
+      `;
+      return;
+    }
+    if (displayName && !existing[0]!.display_name) {
+      this.sql`UPDATE members SET display_name = ${displayName} WHERE user_id = ${userId}`;
+    }
+  }
+
+  /**
+   * Idempotently ensure a GitHub-OAuth user is on the team. Called from the
+   * board GET path so signing in is enough — no `/gh` from Telegram required.
+   * Tries to dedupe with an existing Telegram member who already linked the
+   * same `gh_user` via `/gh` (e.g. tg user 123 with gh_user='octocat'); if
+   * present we leave it alone. Otherwise insert a fresh row keyed by
+   * `gh:<lowercased_login>` so it doesn't collide with telegram user IDs.
+   */
+  noteGithubMember(login: string): void {
+    const lower = login.toLowerCase();
+    const linkedKey = `gh:${lower}`;
+    const existing = this.sql<{ user_id: string }>`
+      SELECT user_id FROM members
+      WHERE user_id = ${linkedKey} OR LOWER(gh_user) = ${lower}
+      LIMIT 1
+    `;
+    if (existing.length > 0) return;
+    const now = Date.now();
+    this.sql`
+      INSERT INTO members (user_id, display_name, gh_user, joined_at)
+      VALUES (${linkedKey}, ${login}, ${login}, ${now})
+    `;
+  }
+
+  /**
+   * Clear all team-constraint context. Removes both the `constraints` (plural,
+   * JSON array — populated by /event extraction) and `constraint` (singular,
+   * the last /constraint text) rows. Logs a `context_changed` event so /why
+   * can still trace it. Does not touch `deadline`, `event_url`, etc.
+   */
+  clearConstraints(): void {
+    this.sql`DELETE FROM context WHERE key IN ('constraints', 'constraint')`;
+    this.appendEvent(null, "context_changed", { constraints: null, constraint: null });
+  }
+
   // ── Conversation memory + agentic confirmation state ─────────────
 
   /**
@@ -801,6 +877,9 @@ export class QuorumAgent extends Agent<Env> {
       VALUES (${authorId}, ${authorName}, ${text}, ${ts}, ${addressed ? 1 : 0})
       RETURNING id
     `;
+    // Auto-add the chatter to the team on first sight so /me isn't required
+    // to populate the team rail. Idempotent — cheap on every message.
+    this.noteTelegramMember(authorId, authorName);
     return rows[0]!.id;
   }
 

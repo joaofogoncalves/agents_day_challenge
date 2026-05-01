@@ -351,6 +351,24 @@ input, textarea { font: inherit; color: inherit; }
   font-feature-settings: 'tnum';
 }
 
+.rail__clear {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--mute);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  padding: 1px 8px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.rail__clear:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
 .rail__hint {
   margin: 0;
   font-family: var(--mono);

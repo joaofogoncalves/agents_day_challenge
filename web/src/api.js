@@ -94,6 +94,19 @@ export async function logout() {
   csrfToken = null;
 }
 
+export async function clearConstraints() {
+  if (usingMock) return { ok: true };
+  const r = await fetch(`/api/board/constraints${chatParam()}`, {
+    ...FETCH_OPTS,
+    method: 'DELETE',
+    headers: { ...csrfHeaders() },
+  });
+  if (r.status === 401) throw new Error('unauthorized — sign in first');
+  if (r.status === 403) throw new Error('forbidden — editor whitelist required');
+  if (!r.ok) throw new Error(`DELETE /api/board/constraints failed: ${r.status}`);
+  return r.json();
+}
+
 export async function patchBoard(patch) {
   if (usingMock) return patch;
   const r = await fetch(`/api/board${chatParam()}`, {

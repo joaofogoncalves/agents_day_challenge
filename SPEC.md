@@ -125,7 +125,7 @@ Reply format is plain text (Telegram MarkdownV2 escaping handled by `format.ts`)
 | `/ideas [phase]` | optional phase filter | SELECT, sorted by composite | List with `#id score text` |
 | `/vote <id>` | idea id | Toggle vote for caller (idempotent per `(idea, voter)`) | `Voted. Total: N` / `Vote removed. Total: N` |
 | `/event <url>` | url | Scrape, populate `context`, recompute fit on all ideas | `Context set: deadline=…, budget=…. Recomputed N ideas.` |
-| `/constraint <text>` | text | UPSERT `context`, **re-validate all parked/killed** | `Reanimated: [#x, #y]. Demoted: [#z]. Reason: …` |
+| `/constraint <text>` | text, or `-` to clear | With text: UPSERT `context`, **re-validate all parked/killed**. With `-`: clears both `context.constraints` (JSON array from `/event`) and `context.constraint` (singular). Empty: prints usage. | `Reanimated: [#x, #y]. Demoted: [#z]. Reason: …` / `Constraints cleared.` |
 | `/me <text>` | free-text skills | LLM extract → `members.skills_json` | `Saved skills: [t1, t2, …]` |
 | `/gh <username>` | gh handle | Fetch profile, merge into skills | Same as `/me` |
 | `/team` | — | Aggregate skills + gaps | `Strong: [...]. Gaps: [...]. Members: N.` |
@@ -154,6 +154,7 @@ Reply format is plain text (Telegram MarkdownV2 escaping handled by `format.ts`)
 | `GET` | `/api/board` | optional session (used to compute `voted_by_me`) | Board JSON for `web/` (see "Board API") |
 | `PATCH` | `/api/ideas/<uid>` | session + editor whitelist + **CSRF** | Edit `name` / `long` from the board UI |
 | `PATCH` | `/api/board` | session + editor whitelist + **CSRF** | Edit board metadata: `name`, `deadline` |
+| `DELETE` | `/api/board/constraints` | session + editor whitelist + **CSRF** | Clear all constraint rows (`constraints` JSON-array and singular `constraint`) |
 | `POST` | `/api/ideas/<uid>/vote` | session (any GitHub user) + **CSRF** | Idempotent toggle of one vote per `(idea, voter)` |
 | `POST` | `/api/dev-seed` | `X-Dev-Seed-Token` matching `DEV_SEED_TOKEN` secret | Local-only seed; route 404s when secret is unset |
 
@@ -266,7 +267,10 @@ The Agent class is the canonical state owner. All command handlers go through th
 | `validateIdea(id)` | `number` | `{ team, resource, market, reason }` | scoring pipeline |
 | `reanimate(constraint)` | `string` | `{ reanimated: id[], demoted: id[], reason: string }` | `/constraint`, confirmed `propose_constraint` |
 | `setMember(userId, patch)` | `string, Partial<Member>` | `Member` | `/me`, `/gh`, router `record_member` |
+| `noteTelegramMember(userId, displayName)` | `string\|null, string\|null` | `void` | Auto-add the speaker on first sight in chat — `/me` is no longer required to land on the team. Idempotent: insert if missing; backfill `display_name` only when it was null/empty. Called from `observe()` and from a grammy middleware that fires before every command. Skips `null` / `"anon"`. |
+| `noteGithubMember(login)` | `string` | `void` | Auto-add a signed-in GitHub user to the team on `GET /api/board`. Idempotent: skips if a member already exists with `user_id = "gh:<lowercased_login>"` OR `LOWER(gh_user) = lowercased_login` (so a Telegram user who linked the same account via `/gh` doesn't get a duplicate row). |
 | `forgetMember(userId)` | `string` | `void` | `/forget` |
+| `clearConstraints()` | — | `void` | Delete both `context.constraints` (JSON-array, set by `/event`) and `context.constraint` (singular, set by `/constraint`). Logs `context_changed`. Driven by `/constraint -` from Telegram and `DELETE /api/board/constraints` from the board UI (editor-only). |
 | `teamSummary()` | — | `{ strong: string[], gaps: string[], members: number }` | `/team` |
 | `planFor(id)` | `number` | `string` (markdown) | `/plan` |
 | `getBoard(voterKey)` | `string \| null` | `BoardIdea[]` | `GET /api/board` (voterKey populates `voted_by_me`) |

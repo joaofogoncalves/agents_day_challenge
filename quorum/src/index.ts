@@ -54,7 +54,7 @@ function corsHeaders(env: Env): Record<string, string> {
   const origin = env.PUBLIC_BASE_URL ?? "*";
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "GET, PATCH, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, PATCH, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Dev-Seed-Token, X-Quorum-CSRF",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
@@ -198,9 +198,37 @@ export default {
       const id = env.QuorumAgent.idFromName(chat);
       const stub = env.QuorumAgent.get(id);
       const headers: Record<string, string> = {};
-      if (session) headers["x-quorum-voter"] = voterKey(session.login);
+      if (session) {
+        headers["x-quorum-voter"] = voterKey(session.login);
+        // Also forward the login so the DO can auto-add this GitHub user
+        // to the chat's team — no `/gh` from Telegram required.
+        headers["x-quorum-login"] = session.login;
+      }
       return stub.fetch(
         new Request(new URL("/board", request.url).toString(), { headers }),
+      );
+    }
+
+    // DELETE /api/board/constraints — editor-only clear of all constraint rows
+    // (both the singular `constraint` and the JSON-array `constraints`).
+    if (url.pathname === "/api/board/constraints" && request.method === "DELETE") {
+      const session = await readSession(request, env);
+      if (!session) return corsJson(env, { error: "unauthorized" }, 401);
+      if (!isEditor(session.login, env)) return corsJson(env, { error: "forbidden" }, 403);
+      if (!validateCsrf(request)) return corsJson(env, { error: "csrf" }, 403);
+      const chat = resolveBoardChat(env, url);
+      if (!chat) return corsJson(env, { error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
+      const id = env.QuorumAgent.idFromName(chat);
+      const stub = env.QuorumAgent.get(id);
+      return stub.fetch(
+        new Request(new URL("/board/constraints", request.url).toString(), {
+          method: "DELETE",
+          headers: {
+            "x-quorum-voter": voterKey(session.login),
+            "x-quorum-login": session.login,
+            "x-quorum-editor": "1",
+          },
+        }),
       );
     }
 

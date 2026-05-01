@@ -19,6 +19,7 @@ import * as github from "./github";
 import { routeIntent } from "./router";
 import type { ActionPlan } from "./schema";
 import { composite } from "./scoring";
+import { parseDeadline } from "./deadline";
 
 export function createBot(agent: QuorumAgent, token: string): Bot {
   // Let grammy fetch botInfo via getMe() lazily on first request. Hardcoding
@@ -27,6 +28,17 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
   // start is a fair price for correctness — and it means a BotFather rename
   // (e.g. @quorom_bot → @quorum_bot) takes effect without a code change.
   const bot = new Bot(token);
+
+  // Auto-add anyone interacting with the bot to the team. Fires before any
+  // command/message handler, so `/idea`, `/vote`, raw chatter — all of it
+  // counts. Idempotent: noteTelegramMember is INSERT-if-missing.
+  bot.use(async (ctx, next) => {
+    const id = ctx.from?.id;
+    if (id != null) {
+      agent.noteTelegramMember(String(id), ctx.from?.first_name ?? null);
+    }
+    await next();
+  });
 
   bot.command("start", async (ctx) => {
     const base = agent.bindings.PUBLIC_BASE_URL ?? "https://quorum.joao-f-o-goncalves.workers.dev";
@@ -92,7 +104,7 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
       return ctx.reply("Deadline cleared.");
     }
     const saved = await agent.setDeadline(text);
-    const note = Number.isFinite(Date.parse(saved ?? text))
+    const note = parseDeadline(text)
       ? "I'll nudge the chat at T-72h, T-24h, and T-0."
       : "(I couldn't parse a date — I'll keep it on the board, but I won't be able to nudge you.)";
     await ctx.reply(`Deadline set: ${saved ?? text}\n${note}`);
@@ -204,11 +216,31 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
   });
 
   bot.command("gh", async (ctx) => {
-    const handle = parseGithubHandle(ctx.match);
-    if (!handle) return ctx.reply("usage: /gh <github-username>");
-    const gh = await github.profile(handle, agent.bindings.GITHUB_TOKEN);
+    const raw = ctx.match;
+    const handle = parseGithubHandle(raw);
+    if (!handle) {
+      return ctx.reply(
+        `usage: /gh <github-username>  (got: "${(raw ?? "").slice(0, 80)}")`,
+      );
+    }
+    // Immediate ack so the chat doesn't go silent during the GH + LLM round-trips
+    // (extractSkills can take several seconds, especially on the 8B fallback).
+    await ctx.reply(`Looking up @${handle} on GitHub…`);
+    let gh: Awaited<ReturnType<typeof github.profile>> = null;
+    try {
+      gh = await github.profile(handle, agent.bindings.GITHUB_TOKEN);
+    } catch (e) {
+      return ctx.reply(`GitHub fetch failed for @${handle}: ${(e as Error).message}`);
+    }
     if (!gh) return ctx.reply(`Couldn't reach GitHub for @${handle}.`);
-    const skills = await extractSkills(agent.bindings.AI, "", gh.summary);
+    let skills: string[] = [];
+    try {
+      skills = await extractSkills(agent.bindings.AI, "", gh.summary);
+    } catch (e) {
+      return ctx.reply(
+        `Got @${handle}'s profile, but skill extraction failed: ${(e as Error).message}`,
+      );
+    }
     const userId = authorOf(ctx);
     const displayName = ctx.from?.first_name ?? null;
     agent.setMember(userId, {
@@ -265,7 +297,15 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
 
   bot.command("constraint", async (ctx) => {
     const text = ctx.match.trim();
-    if (!text) return ctx.reply("usage: /constraint <text>");
+    if (!text) {
+      return ctx.reply(
+        `usage: /constraint <text>  (or "/constraint -" to clear all constraints)`,
+      );
+    }
+    if (text === "-" || text === "—") {
+      agent.clearConstraints();
+      return ctx.reply("Constraints cleared.");
+    }
     await ctx.reply(`Re-validating against: "${text}" …`);
     const out = await agent.reanimate(text);
     const re = out.reanimated.length ? `[${out.reanimated.map((id) => `#${id}`).join(", ")}]` : "[]";
