@@ -256,7 +256,7 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
     const authorId = String(ctx.from?.id ?? "anon");
     const authorName = ctx.from?.first_name ?? null;
     const addressed = isAddressed(ctx);
-    agent.observe(text, authorId, authorName, addressed);
+    const messageId = agent.observe(text, authorId, authorName, addressed);
 
     // Step 2: "yes" reply confirms whatever the bot last proposed to this user.
     if (isAffirmative(text)) {
@@ -264,24 +264,34 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
       if (pending) {
         agent.clearPendingConfirmation(authorId);
         await executePlan(ctx, agent, pending, authorId);
+        agent.markRouted(messageId, { kind: "noop" });
         return;
       }
     }
 
-    if (await tryRegexShortcut(ctx, agent, text, authorId)) return;
+    if (await tryRegexShortcut(ctx, agent, text, authorId)) {
+      agent.markRouted(messageId, { kind: "noop" });
+      return;
+    }
 
-    if (!addressed) return; // overheard chatter — observe only.
+    if (!addressed) return; // overheard chatter — observe only, leave unrouted.
 
-    // Step 4: addressed → run the LLM router.
+    // Step 4: addressed → run the LLM router with explicit target/prior split.
+    // The target is THIS message; prior context is the recent unrouted history.
+    // markRouted at the end stamps this row so the next turn doesn't re-act on it.
     try {
       await ctx.replyWithChatAction("typing").catch(() => {});
-      const recent = agent.recentMessages(8);
-      const decision = await routeIntent(agent.bindings.AI, recent, true);
+      const target = { id: messageId, author_id: authorId, author_name: authorName,
+        text, ts: Date.now(), addressed_bot: 1, intent_json: null };
+      const prior = agent.priorContext(messageId, 7);
+      const decision = await routeIntent(agent.bindings.AI, target, prior, true);
       await dispatchDecision(ctx, agent, decision, authorId);
+      agent.markRouted(messageId, decision.plan);
     } catch (e) {
       console.error("router failed:", e);
       // bot.catch will also see this; reply something brief so the chat isn't silent.
       await ctx.reply("hmm, I couldn't think that through. try a slash command? `/help`");
+      agent.markRouted(messageId, { kind: "noop" });
     }
   });
 

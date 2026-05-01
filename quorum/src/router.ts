@@ -108,25 +108,26 @@ export type RouterDecision = {
 
 export async function routeIntent(
   ai: Ai,
-  recent: Message[],
+  target: Message,
+  priorContext: Message[],
   addressed: boolean,
 ): Promise<RouterDecision> {
-  const last = recent[recent.length - 1];
-  if (!last) return { plan: { kind: "noop" }, confidence: 0 };
-
-  if (INJECTION_PATTERNS.some((re) => re.test(last.text))) {
+  if (INJECTION_PATTERNS.some((re) => re.test(target.text))) {
     return { plan: { kind: "noop" }, confidence: 0, blocked: "injection" };
   }
 
-  const recentBlock = recent
-    .map((m) => {
-      const who = m.author_name ?? m.author_id ?? "?";
-      return `[${who}] ${m.text.slice(0, 240)}`;
-    })
-    .join("\n");
+  const renderLine = (m: Message) => {
+    const who = m.author_name ?? m.author_id ?? "?";
+    return `[${who}] ${m.text.slice(0, 240)}`;
+  };
+
+  const priorBlock = priorContext.length
+    ? priorContext.map(renderLine).join("\n")
+    : "(no prior unrouted messages)";
 
   const { system, user } = loadPrompt(routerPrompt, {
-    recent_messages: recentBlock,
+    prior_context: priorBlock,
+    target_message: renderLine(target),
     addressed_state: addressed ? "directly addressed (mention/reply/DM)" : "overheard",
   });
 
@@ -152,11 +153,11 @@ export async function routeIntent(
       return { plan: { kind: "propose_constraint", text }, confidence: conf };
     }
     case "answer_question": {
-      const question = String(call.args["question"] ?? "").slice(0, 200).trim() || last.text;
+      const question = String(call.args["question"] ?? "").slice(0, 200).trim() || target.text;
       return { plan: { kind: "answer_question", question }, confidence: conf };
     }
     case "record_member": {
-      const text = String(call.args["text"] ?? "").trim() || last.text;
+      const text = String(call.args["text"] ?? "").trim() || target.text;
       return { plan: { kind: "record_member", text }, confidence: conf };
     }
     default:

@@ -104,7 +104,7 @@ In addition to slash commands, the bot now reads every plain-text message and ac
    - `kill #N` → `setStatus(N, "killed")`
    - `park #N` → `setStatus(N, "parked")`
    - `promote #N` → `promote(N)`
-3. **LLM intent router** (only when **addressed** — `@<botUsername>`, reply-to-bot, or private chat). Runs `routeIntent(ai, recentMessages, addressed)` against an OpenAI-style tool surface (`add_idea | propose_constraint | answer_question | record_member | noop`). Confidence-banded:
+3. **LLM intent router** (only when **addressed** — `@<botUsername>`, reply-to-bot, or private chat). Runs `routeIntent(ai, target, priorContext, addressed)` against an OpenAI-style tool surface (`add_idea | propose_constraint | answer_question | record_member | noop`). The router is given the **target message** (the single line to act on) explicitly separated from **prior context** (older history, for situational awareness only — never a candidate for action). After dispatch, the target message's `intent_json` is set via `markRouted`, so it never re-fires next turn even though it stays in the rolling window. Confidence-banded:
    - `≥ 0.75` for safe non-cascading actions → execute, brief reply.
    - any `propose_constraint` → never auto-executes; stashes an `ActionPlan` in `pending_confirmations`, asks the user "reply *yes*…".
    - `noop` or low-confidence → minimal/no reply.
@@ -245,8 +245,10 @@ The Agent class is the canonical state owner. All command handlers go through th
 | `planFor(id)` | `number` | `string` (markdown) | `/plan` |
 | `getBoard(voterKey)` | `string \| null` | `BoardIdea[]` | `GET /api/board` (voterKey populates `voted_by_me`) |
 | `updateIdea(id, patch, editor, voterKey)` | `number, {name?, long?}, string, string\|null` | `BoardIdea \| null` | `PATCH /api/ideas/:uid` (Worker enforces editor whitelist before forwarding) |
-| `observe(text, authorId, authorName, addressed)` | `string, string\|null, string\|null, boolean` | `void` | every plain-text message |
-| `recentMessages(limit?)` | `number?` (default 8) | `Message[]` | router context |
+| `observe(text, authorId, authorName, addressed)` | `string, string\|null, string\|null, boolean` | `number` (inserted message id) | every plain-text message |
+| `markRouted(messageId, intent)` | `number, ActionPlan` | `void` | After router dispatch (or any deterministic handling). Sets `messages.intent_json` so the message stops being a candidate for re-action. |
+| `priorContext(beforeId, limit?)` | `number, number?` (default 7) | `Message[]` | Older unrouted history (intent_json IS NULL), oldest-first. Router context only — never the action target. |
+| `recentMessages(limit?)` | `number?` (default 8) | `Message[]` | Generic recent-window read; oldest-first. |
 | `pendingConfirmation(userId)` | `string` | `ActionPlan \| null` | "yes" reply lookup |
 | `setPendingConfirmation(userId, plan, ttlSec?)` | `string, ActionPlan, number?` | `void` | router proposals |
 | `clearPendingConfirmation(userId)` | `string` | `void` | after execute / TTL expiry |
