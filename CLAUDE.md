@@ -13,8 +13,9 @@ Read in order:
 1. [`PLAN.md`](./PLAN.md) — overview, pitch, stack, timeline, cuts-in-order, demo flow.
 2. [`SPEC.md`](./SPEC.md) — **data + API contracts**. Always-in-sync source of truth for schema, commands, endpoints, internal Agent methods, prompt I/O shapes, scoring formula.
 3. [`team/joao.md`](./team/joao.md), [`team/rui.md`](./team/rui.md), [`team/twody7.md`](./team/twody7.md) — per-person scope, status, what's next.
-4. [`web/FRONTEND.md`](./web/FRONTEND.md) — board UI need-to-knows: column stages, the `Idea` shape, what's user-editable vs. agent-owned, naming conventions. Read before touching `web/`.
-5. [`quorum/SETUP.md`](./quorum/SETUP.md) — first-time setup runbook (login → secrets → deploy → setWebhook).
+4. [`NEXT_STEPS.md`](./NEXT_STEPS.md) — deferred work, known issues, and out-of-scope ideas captured during the build. Not for today.
+5. [`web/FRONTEND.md`](./web/FRONTEND.md) — board UI need-to-knows: column stages, the `Idea` shape, what's user-editable vs. agent-owned, naming conventions. Read before touching `web/`.
+6. [`quorum/SETUP.md`](./quorum/SETUP.md) — first-time setup runbook (login → secrets → deploy → setWebhook).
 
 This file is a thin orientation layer on top of the above. Don't restate them here — point to them.
 
@@ -159,3 +160,7 @@ This is a 1-day build with three people working concurrently:
 ## Working under time pressure
 
 9-hour build. The cuts-in-order list in `PLAN.md` is load-bearing — drop features in that order, not arbitrarily. **Never cut:** `/idea /vote /ideas /constraint /why /me /team`. Without those the demo has no story.
+
+## When you find something worth doing later
+
+If during a session you spot a new idea, a half-broken thing, an architectural improvement, a product feature, or a "we should do X someday" thought — and it's **not load-bearing for today's demo** — append a short bullet to [`NEXT_STEPS.md`](./NEXT_STEPS.md) under "Out of scope" or "Known issues". One line, with enough context that the next reader understands the *why*. Don't act on it, don't open a side quest, don't let the demo slip. Just capture it. The point of the file is that nothing valuable evaporates between sessions.
