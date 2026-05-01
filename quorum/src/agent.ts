@@ -57,7 +57,15 @@ export class QuorumAgent extends Agent<Env> {
 
     if (url.pathname === "/onUpdate" && request.method === "POST") {
       const handle = webhookCallback(this.getBot(), "cloudflare-mod");
-      return handle(request);
+      // Telegram retries on non-2xx — but our reply happens via the Bot API
+      // (a separate outbound call). If sendMessage fails we don't want
+      // Telegram to keep redelivering forever. Always 200 to drain the queue.
+      try {
+        return await handle(request);
+      } catch (e) {
+        console.error("grammy threw during webhook:", e);
+        return new Response("ok", { status: 200 });
+      }
     }
 
     // Board API — proxied here from src/index.ts after chat-id resolution.
