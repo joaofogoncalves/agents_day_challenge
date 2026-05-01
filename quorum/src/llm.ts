@@ -62,8 +62,16 @@ export async function complete(
   const errors: unknown[] = [];
   for (const model of opts.models ?? ([PRIMARY, FALLBACK] as const)) {
     try {
-      const res = (await ai.run(model, params)) as { response?: string };
-      if (res?.response) return res.response;
+      const res = (await ai.run(model, params)) as { response?: unknown };
+      if (res?.response != null) {
+        // Workers AI usually returns `response` as a string, but newer models
+        // sometimes hand back an already-parsed object (e.g. when the model
+        // emits valid JSON). Re-stringify so downstream callers — including
+        // parseJson, which does `raw.trim()` — see a string either way.
+        return typeof res.response === "string"
+          ? res.response
+          : JSON.stringify(res.response);
+      }
       errors.push(new Error(`empty response from ${model}`));
     } catch (e) {
       console.error(`LLM ${model} failed:`, e);
