@@ -10,7 +10,8 @@
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
     "types": "wrangler types env.d.ts --include-runtime false",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "dogfood": "tsx scripts/dogfood.ts"
   },
   "dependencies": {
     "agents": "^0.12.0",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260430.1",
+    "tsx": "^4.19.3",
     "typescript": "^5.6.0",
     "wrangler": "^4.87.0"
   }
