@@ -1,0 +1,25 @@
+{
+  "name": "quorum",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Quorum — chat-native agent that helps teams converge on what to build. Cloudflare Workers + Agents SDK.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "types": "wrangler types env.d.ts --include-runtime false",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "agents": "^0.12.0",
+    "grammy": "^1.30.0",
+    "workers-ai-provider": "^3.1.13",
+    "zod": "^4.4.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260430.1",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.87.0"
+  }
+}

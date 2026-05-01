@@ -6,10 +6,11 @@ This is the contract between team members. **Update this file in the same commit
 
 | Name | Source | Notes |
 |------|--------|-------|
-| `ANTHROPIC_API_KEY` | `wrangler secret` | Heavy reasoning fallback (validation scoring) |
 | `TELEGRAM_BOT_TOKEN` | `wrangler secret` | From @BotFather |
-| `TELEGRAM_WEBHOOK_SECRET` | `wrangler secret` | Random; passed back via `X-Telegram-Bot-Api-Secret-Token` |
+| `TELEGRAM_WEBHOOK_SECRET` | `wrangler secret` | Self-generated random string (≥32 bytes hex). Passed back by Telegram via `X-Telegram-Bot-Api-Secret-Token` on every webhook hit. |
 | `GITHUB_TOKEN` | `wrangler secret` (optional) | Higher rate limit for `/gh` lookups |
+
+**Why no Anthropic key?** We use Workers AI Llama 3.3 70B for everything (Path A — see PLAN.md). Keeps the stack 100% on Cloudflare and inside the 10K Neurons/day free tier for the demo. If validation quality degrades during dogfooding, we swap to Gemini 2.5 Flash via Cloudflare AI Gateway (10× cheaper than Claude, still proxied through CF).
 
 ## SQLite schema (per-chat, owned by `QuorumAgent`)
 
@@ -114,8 +115,8 @@ Each prompt has a strict input shape and JSON output schema. **Don't free-form r
 ### Validation scoring
 - **Input:** `{ idea: string, context: { event, deadline, budget, constraints[] }, team: { skills_aggregate } }`
 - **Output:** `{ "team_fit": number, "resource_fit": number, "reason": string }` — fits in [0,1], reason ≤ 200 chars
-- **Default model:** Claude Sonnet 4.6 via `fetch` (heavy reasoning)
-- **Fallback:** Llama 3.3 70B
+- **Default model:** `@cf/meta/llama-3.3-70b-instruct-fp8-fast`
+- **Fallback:** `@cf/meta/llama-3.1-8b-instruct-fast` (when 70B is rate-limited or times out)
 
 ### Plan generation
 - **Input:** `{ idea, team_skills, deadline, constraints }`

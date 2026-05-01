@@ -29,11 +29,11 @@ Single-target pitch. Every architectural primitive must defend its place on the 
 ## Stack (locked)
 
 - Cloudflare Workers + **Agents SDK** (`Agent` class extends Durable Object, with SQLite + state + scheduling built in)
-- Workers AI: `@cf/meta/llama-3.3-70b-instruct-fp8-fast` (default) → `@cf/meta/llama-3.1-8b-instruct-fast` (fallback under load)
-- Anthropic Claude via raw `fetch` to `api.anthropic.com` (heavy reasoning: validation scoring)
+- Workers AI: `@cf/meta/llama-3.3-70b-instruct-fp8-fast` (default) → `@cf/meta/llama-3.1-8b-instruct-fast` (fallback under load). **Path A locked: 100% Workers AI**, no Anthropic dependency. Sharper sponsor pitch + stays inside the free 10K Neurons/day for the demo.
 - Cron Triggers (deadline + stall nudges, 1-min granularity minimum)
 - Telegram Bot API + `grammY` (inside `Agent.onRequest`)
 - GitHub API (skills extraction, optional — `/me` covers the gap if it slips)
+- **Escape hatch (only if Llama validation quality is visibly bad during H+4 dogfood):** swap validation to Gemini 2.5 Flash via **Cloudflare AI Gateway** (~10× cheaper than Claude, still routed through CF infra so the deck stays clean).
 
 Dropped from earlier drafts and why:
 - **D1** — Agent's per-chat SQLite covers our needs. D1 only earns its place for cross-org leaderboards (out of scope).
@@ -50,9 +50,8 @@ Critical gotchas:
 ```bash
 npm create cloudflare@latest quorum -- --template cloudflare/agents-starter
 cd quorum
-npx wrangler secret put ANTHROPIC_API_KEY
-npx wrangler secret put TELEGRAM_BOT_TOKEN
-npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
+npx wrangler secret put TELEGRAM_BOT_TOKEN          # from @BotFather
+npx wrangler secret put TELEGRAM_WEBHOOK_SECRET     # openssl rand -hex 32
 npx wrangler dev
 ```
 

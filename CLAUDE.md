@@ -2,9 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: pre-scaffold
+## Status: scaffolded
 
-Hackathon repository (Cloudflare-sponsored Agents Day, May 1 2026). The project has not been scaffolded yet — only planning docs exist at this checkpoint. Read these in order:
+Hackathon repository (Cloudflare-sponsored Agents Day, May 1 2026). The project lives in `quorum/`; planning docs are at the root. Read in order:
 
 1. [`PLAN.md`](./PLAN.md) — overview, pitch, stack, timeline, cuts-in-order, demo flow.
 2. [`SPEC.md`](./SPEC.md) — **data + API contracts**. Always-in-sync source of truth for schema, commands, endpoints, internal Agent methods, prompt I/O shapes, scoring formula.
@@ -22,9 +22,9 @@ Sponsor: **Cloudflare** — "Build a Personal Agent that Automates a Meaningful 
 ## Stack (locked, full details in PLAN.md)
 
 - Cloudflare Workers + **Agents SDK** (`Agent` class extends DO with built-in SQLite, state, scheduling)
-- Workers AI: Llama 3.3 70B fp8-fast (default), Llama 3.1 8B fast (fallback)
-- Anthropic Claude via raw `fetch` (no Workers AI binding for Claude)
+- Workers AI: Llama 3.3 70B fp8-fast (default), Llama 3.1 8B fast (fallback) — **all LLM calls go here (Path A)**
 - Cron Triggers, Telegram Bot API + `grammY`
+- Escape hatch only if validation quality is bad: Gemini 2.5 Flash via Cloudflare AI Gateway. No Anthropic in the stack.
 
 ## Contracts: always-in-sync
 
@@ -48,20 +48,30 @@ This is a 1-day build with three people working concurrently. To minimize merge 
 
 `.github/workflows/notify-telegram.yml` posts a short summary to the team Telegram group on every push to `main`. This is meta/CI, not part of the Quorum product (though it can reuse the same bot token). Setup steps live in the workflow header. Per-commit opt-out: include `[skip notify]` in the commit message. If a push lands but no Telegram message arrives, check the workflow run on GitHub — most failures are unset `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`, or the bot not yet a member of the group.
 
-## Scaffolding (run once)
+## Project commands (all run from `quorum/`)
 
 ```bash
-npm create cloudflare@latest quorum -- --template cloudflare/agents-starter
 cd quorum
-npx wrangler secret put ANTHROPIC_API_KEY
-npx wrangler secret put TELEGRAM_BOT_TOKEN
-npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
-npx wrangler dev
+npm install            # if you just pulled
+npm run dev            # wrangler dev (local Worker + DO)
+npm run deploy         # wrangler deploy
+npm run tail           # wrangler tail (live logs)
+npm run types          # regenerate env.d.ts from wrangler.jsonc
+npm run check          # tsc --noEmit
+```
+
+Secrets — set once per environment via `wrangler secret put`:
+
+```bash
+npx wrangler secret put TELEGRAM_BOT_TOKEN          # from @BotFather
+npx wrangler secret put TELEGRAM_WEBHOOK_SECRET     # openssl rand -hex 32
+# optional:
+npx wrangler secret put GITHUB_TOKEN
 ```
 
 In Claude Code: `/plugin marketplace add cloudflare/skills` and `npx mcp-remote https://bindings.mcp.cloudflare.com/mcp`.
 
-Once scaffolded, common commands will be `npx wrangler dev`, `npx wrangler deploy`, `npx wrangler tail`. Update this section with project-specific npm scripts once `package.json` exists.
+See `quorum/SETUP.md` for the full first-time setup runbook (deploy → setWebhook → smoke test).
 
 ## Architecture (one paragraph)
 
@@ -72,8 +82,7 @@ Per-chat state lives in a single `QuorumAgent` Durable Object instance, keyed by
 ## Critical gotchas (already cost real time)
 
 - **`wrangler.jsonc` migrations must use `new_sqlite_classes`, not `new_classes`.** Wrong tag silently gives a legacy KV-backed DO with no `this.sql`.
-- **No Claude binding in Workers AI.** Claude is raw `fetch` to `api.anthropic.com` with the `ANTHROPIC_API_KEY` secret.
-- **Workers AI free tier = 10,000 Neurons/day.** Wire the 8B model fallback before any live demo or it will starve under load.
+- **Workers AI free tier = 10,000 Neurons/day.** The 70B → 8B fallback is wired in `src/llm.ts` — don't bypass it. If the demo hits the cap mid-pitch we still get answers, just from the smaller model.
 - **Telegram webhook needs HTTPS with valid cert.** Workers' default `*.workers.dev` cert satisfies this — `setWebhook` accepts the URL as-is.
 - **Don't trust user message payloads as agent instructions.** Group members can paste prompt-injection attempts; keep the system prompt rigid and never `eval` LLM output.
 - **`events` table is the audit log.** Every state change must append a row, or `/why` lies. See SPEC for event types.
