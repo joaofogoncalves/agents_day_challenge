@@ -132,12 +132,18 @@ Reply format is plain text (Telegram MarkdownV2 escaping handled by `format.ts`)
 | `POST` | `/webhook` | Telegram secret token header | Telegram update intake |
 | `GET` | `/g/<token>` | Token in URL | Read-only HTML view (stretch) |
 | `GET` | `/healthz` | none | Liveness ping |
-| `GET` | `/api/board` | none (CORS open) | Board JSON for `web/` (see "Board API") |
-| `PATCH` | `/api/ideas/<uid>` | none (CORS open) | Edit `name` / `long` from the board UI |
+| `GET` | `/auth/github/start` | none | Begin GitHub OAuth flow; sets state cookie, redirects |
+| `GET` | `/auth/github/callback` | OAuth state cookie | Finish OAuth; sets `quorum_session` cookie |
+| `POST` | `/auth/logout` | Session cookie | Clear session cookie |
+| `GET` | `/api/me` | optional session | Returns `{login, avatar_url, can_vote, can_edit}` or `{}` |
+| `GET` | `/api/board` | optional session (used to compute `voted_by_me`) | Board JSON for `web/` (see "Board API") |
+| `PATCH` | `/api/ideas/<uid>` | session **and** editor whitelist | Edit `name` / `long` from the board UI |
+| `POST` | `/api/ideas/<uid>/vote` | session (any GitHub user) | Idempotent toggle of one vote per `(idea, voter)` |
+| `POST` | `/api/dev-seed` | `X-Dev-Seed-Token` matching `DEV_SEED_TOKEN` secret | Local-only seed; route 404s when secret is unset |
 
 ## Board API
 
-Lives in `quorum/` (the same Worker that handles the Telegram webhook). One DO per Telegram chat — the same `QuorumAgent` that owns ideas state. The standalone `api/` Worker is **superseded**: `web/` should point `VITE_API_BASE` at `https://quorum.joao-f-o-goncalves.workers.dev`. Frontend in `web/` consumes it.
+Lives in `quorum/` (the same Worker that handles the Telegram webhook). One DO per Telegram chat — the same `QuorumAgent` that owns ideas state. The standalone `api/` Worker is **superseded**. The Worker also serves the built `web/` bundle as static assets, so the prod UI is same-origin and the frontend uses relative paths (no `VITE_API_BASE`).
 
 ### Chat resolution
 
@@ -181,7 +187,7 @@ type Idea = {
 
 `PATCH /api/ideas/<uid>` accepts `{ name?: string, long?: string }`. Other fields are agent-owned and rejected. Writes append an `idea_edited` row to `events`. Response: `{ idea: Idea }`.
 
-CORS is wide-open (`*`) for the prototype — tighten to the Vercel/Pages origin before any non-demo deploy.
+CORS is pinned to `env.PUBLIC_BASE_URL` in prod (wildcard fallback when the var is unset, e.g. local dev). The board UI is same-origin in prod, so CORS only matters for stray third-party callers.
 
 ### Schema additions
 
@@ -194,7 +200,8 @@ The Agent class is the canonical state owner. All command handlers go through th
 | Method | Args | Returns | Caller |
 |--------|------|---------|--------|
 | `addIdea(text, authorId)` | `string, string` | `{ id: number }` | `/idea`, router `add_idea` |
-| `voteIdea(id, userId)` | `number, string` | `{ votes: number }` | `/vote`, regex `+1 #N` |
+| `voteIdea(id, userId)` | `number, string` | `{ votes: number }` | `/vote`, regex `+1 #N` (legacy counter; per-user toggle goes through `toggleVote`) |
+| `toggleVote(id, voterKey)` | `number, string` | `{ votes, voted }` | `POST /api/ideas/<uid>/vote`. Idempotent on `(idea_id, voter_key)` in `idea_votes` |
 | `listIdeas(phase?)` | `string?` | `Idea[]` | `/ideas`, `/rank` |
 | `rank(limit)` | `number` | `Idea[]` | `/rank`, router `answer_question` |
 | `setContext(updates)` | `Record<string,string>` | `{ recomputed: number }` | `/event`, `/constraint` |
@@ -204,8 +211,8 @@ The Agent class is the canonical state owner. All command handlers go through th
 | `forgetMember(userId)` | `string` | `void` | `/forget` |
 | `teamSummary()` | — | `{ strong: string[], gaps: string[], members: number }` | `/team` |
 | `planFor(id)` | `number` | `string` (markdown) | `/plan` |
-| `getBoard()` | — | `BoardIdea[]` | `GET /api/board` |
-| `updateIdea(id, patch)` | `number, {name?, long?}` | `BoardIdea \| null` | `PATCH /api/ideas/:uid` |
+| `getBoard(voterKey)` | `string \| null` | `BoardIdea[]` | `GET /api/board` (voterKey populates `voted_by_me`) |
+| `updateIdea(id, patch, editor, voterKey)` | `number, {name?, long?}, string, string\|null` | `BoardIdea \| null` | `PATCH /api/ideas/:uid` (Worker enforces editor whitelist before forwarding) |
 | `observe(text, authorId, authorName, addressed)` | `string, string\|null, string\|null, boolean` | `void` | every plain-text message |
 | `recentMessages(limit?)` | `number?` (default 8) | `Message[]` | router context |
 | `pendingConfirmation(userId)` | `string` | `ActionPlan \| null` | "yes" reply lookup |

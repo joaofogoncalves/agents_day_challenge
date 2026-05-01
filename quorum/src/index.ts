@@ -43,17 +43,27 @@ function extractChatId(update: TelegramUpdate): string | null {
   return id == null ? null : String(id);
 }
 
-const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, PATCH, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-  "Access-Control-Max-Age": "86400",
-};
+function corsHeaders(env: Env): Record<string, string> {
+  // Same-origin in prod (assets served by this Worker), so CORS only matters
+  // for stray third-party calls. Restrict to PUBLIC_BASE_URL when set;
+  // fall back to wildcard for local/dev where the origin isn't pinned.
+  const origin = env.PUBLIC_BASE_URL ?? "*";
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, PATCH, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Dev-Seed-Token",
+    "Access-Control-Max-Age": "86400",
+    Vary: "Origin",
+  };
+}
 
-function corsJson(body: unknown, status = 200): Response {
+function corsJson(env: Env, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json; charset=utf-8", ...CORS_HEADERS },
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      ...corsHeaders(env),
+    },
   });
 }
 
@@ -69,11 +79,11 @@ export default {
 
     // CORS preflight for the board API.
     if (request.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
+      return new Response(null, { status: 204, headers: corsHeaders(env) });
     }
 
     if (url.pathname === "/healthz") {
-      return new Response("ok", { status: 200, headers: CORS_HEADERS });
+      return new Response("ok", { status: 200, headers: corsHeaders(env) });
     }
 
     // ── Auth (GitHub OAuth) ─────────────────────────────────────────
@@ -88,8 +98,8 @@ export default {
     }
     if (url.pathname === "/api/me" && request.method === "GET") {
       const session = await readSession(request, env);
-      if (!session) return corsJson({});
-      return corsJson({
+      if (!session) return corsJson(env, {});
+      return corsJson(env, {
         login: session.login,
         avatar_url: session.avatar_url,
         can_vote: session.can_vote,
@@ -131,9 +141,16 @@ export default {
     // ── Board API (web/) ─────────────────────────────────────────────
 
     // Dev-only seed (no-op if data exists). Forwarded to the resolved chat DO.
+    // Gated on DEV_SEED_TOKEN — set the secret + send matching X-Dev-Seed-Token
+    // header. Unset secret (prod) makes the route invisible (404).
     if (url.pathname === "/api/dev-seed" && request.method === "POST") {
+      const expected = env.DEV_SEED_TOKEN;
+      const got = request.headers.get("x-dev-seed-token");
+      if (!expected || got !== expected) {
+        return new Response("not found", { status: 404 });
+      }
       const chat = resolveBoardChat(env, url);
-      if (!chat) return corsJson({ error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
+      if (!chat) return corsJson(env, { error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
       const id = env.QuorumAgent.idFromName(chat);
       const stub = env.QuorumAgent.get(id);
       return stub.fetch(
@@ -147,7 +164,7 @@ export default {
 
     if (url.pathname === "/api/board" && request.method === "GET") {
       const chat = resolveBoardChat(env, url);
-      if (!chat) return corsJson({ error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
+      if (!chat) return corsJson(env, { error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
       const session = await readSession(request, env);
       const id = env.QuorumAgent.idFromName(chat);
       const stub = env.QuorumAgent.get(id);
@@ -165,12 +182,12 @@ export default {
       request.method === "POST"
     ) {
       const session = await readSession(request, env);
-      if (!session) return corsJson({ error: "unauthorized" }, 401);
+      if (!session) return corsJson(env, { error: "unauthorized" }, 401);
       const uid = decodeURIComponent(
         url.pathname.slice("/api/ideas/".length, -"/vote".length),
       );
       const chat = resolveBoardChat(env, url);
-      if (!chat) return corsJson({ error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
+      if (!chat) return corsJson(env, { error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
       const id = env.QuorumAgent.idFromName(chat);
       const stub = env.QuorumAgent.get(id);
       return stub.fetch(
@@ -190,11 +207,11 @@ export default {
 
     if (url.pathname.startsWith("/api/ideas/") && request.method === "PATCH") {
       const session = await readSession(request, env);
-      if (!session) return corsJson({ error: "unauthorized" }, 401);
-      if (!isEditor(session.login, env)) return corsJson({ error: "forbidden" }, 403);
+      if (!session) return corsJson(env, { error: "unauthorized" }, 401);
+      if (!isEditor(session.login, env)) return corsJson(env, { error: "forbidden" }, 403);
       const uid = decodeURIComponent(url.pathname.slice("/api/ideas/".length));
       const chat = resolveBoardChat(env, url);
-      if (!chat) return corsJson({ error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
+      if (!chat) return corsJson(env, { error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
       const id = env.QuorumAgent.idFromName(chat);
       const stub = env.QuorumAgent.get(id);
       return stub.fetch(

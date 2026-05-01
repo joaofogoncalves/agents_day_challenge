@@ -21,6 +21,8 @@ declare global {
     GITHUB_OAUTH_CLIENT_SECRET?: string;
     /** 32-byte hex string. HMAC key for session cookies. */
     SESSION_SIGNING_KEY?: string;
+    /** When set, /api/dev-seed requires matching X-Dev-Seed-Token header. Unset = route 404s. */
+    DEV_SEED_TOKEN?: string;
   }
 }
 

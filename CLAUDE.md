@@ -25,8 +25,10 @@ This file is a thin orientation layer on top of the above. Don't restate them he
 |---|---|---|
 | Board UI | `https://quorum.joao-f-o-goncalves.workers.dev/?chat=<id>` | Reads `?chat=` from URL → `/api/board?chat=...`. Without `?chat=`, falls back to `DEFAULT_BOARD_CHAT` var. |
 | Telegram webhook | `https://quorum.joao-f-o-goncalves.workers.dev/webhook` | Signature-checked via `TELEGRAM_WEBHOOK_SECRET` |
-| Board JSON | `https://quorum.joao-f-o-goncalves.workers.dev/api/board[?chat=<id>]` | CORS open `*` |
-| Idea PATCH | `PATCH /api/ideas/:uid[?chat=<id>]` body `{name?, long?}` | Writes append `idea_edited` to `events` |
+| Board JSON | `https://quorum.joao-f-o-goncalves.workers.dev/api/board[?chat=<id>]` | CORS pinned to `PUBLIC_BASE_URL` |
+| Idea PATCH | `PATCH /api/ideas/:uid[?chat=<id>]` body `{name?, long?}` | Auth required (session + editor whitelist). Writes append `idea_edited` |
+| Vote toggle | `POST /api/ideas/:uid/vote[?chat=<id>]` | Auth required (any GitHub user). Idempotent toggle |
+| Auth | `GET /auth/github/start`, `GET /auth/github/callback`, `POST /auth/logout`, `GET /api/me` | GitHub OAuth + signed session cookie |
 | Liveness | `https://quorum.joao-f-o-goncalves.workers.dev/healthz` | `ok` / 200 |
 
 The bot is in two Telegram groups:
@@ -45,53 +47,64 @@ The bot is in two Telegram groups:
 
 Until this is fixed, demo flow doesn't work. **First priority** — see [`team/joao.md`](./team/joao.md).
 
-## TODO — production readiness for social-ranking-and-auth (branch `feat/social-ranking-and-auth`)
+## TODO — social-ranking-and-auth deploy
 
-This iteration ships GitHub OAuth + per-user vote toggle + editor whitelist. It's
-working end-to-end **locally**. Before merging and deploying, the following
-items still need to land. Spec for the feature is in
+The feature (GitHub OAuth + per-user vote toggle + editor whitelist) is
+**merged to `main`**. Spec:
 [`docs/superpowers/specs/2026-05-01-social-ranking-and-auth-design.md`](./docs/superpowers/specs/2026-05-01-social-ranking-and-auth-design.md).
+The pre-deploy cleanup is now complete:
 
-- [ ] **Register the production GitHub OAuth App.** Separate from the local one.
-      Homepage: `https://quorum.joao-f-o-goncalves.workers.dev`. Callback:
-      `https://quorum.joao-f-o-goncalves.workers.dev/auth/github/callback`.
-      Different `GITHUB_OAUTH_CLIENT_ID` + `_SECRET` per environment — never
-      reuse local credentials in prod.
-- [ ] **Set the three new secrets on the deployed Worker:**
-      `npx wrangler secret put GITHUB_OAUTH_CLIENT_ID`,
-      `npx wrangler secret put GITHUB_OAUTH_CLIENT_SECRET`,
-      `npx wrangler secret put SESSION_SIGNING_KEY`
-      (use `openssl rand -hex 32` for the signing key — must differ from local).
-- [ ] **Confirm `EDITOR_WHITELIST` in `quorum/wrangler.jsonc` matches the real
-      production team list** before deploy. It ships as a `var`, not a secret —
-      changes require a redeploy.
-- [ ] **Tighten CORS.** `quorum/src/index.ts` currently sends
-      `Access-Control-Allow-Origin: *`. With same-origin assets the prod UI
-      doesn't need wildcard — restrict to `PUBLIC_BASE_URL` and only add
-      `Access-Control-Allow-Credentials: true` if any cross-origin client appears.
-- [ ] **Sanity-test the OAuth callback on Safari** (and any other browser the
-      team uses). `SameSite=Lax` should be fine, but the cross-site redirect
-      from github.com → workers.dev is the failure mode worth eyeballing.
-- [ ] **Update `quorum/package.json` `predeploy`.** Today it sets
-      `VITE_API_BASE=https://quorum.joao-f-o-goncalves.workers.dev` for the
-      build. With the Vite-proxy refactor, `VITE_API_BASE` is unused — the
-      frontend now uses relative paths and the Worker serves `web/dist`
-      same-origin. Drop the env override; just `cd ../web && npm run build`.
-- [ ] **Gate or remove `/api/dev-seed`.** The endpoint is no-op when ideas
-      exist, but it's still a public POST. Either delete before deploy or
-      gate on a Worker secret (`X-Dev-Seed-Token` header).
-- [ ] **Telegram `/vote` per-user tracking (deferred).** Web votes track
-      `(idea_id, voter_key="gh:<login>")` in `idea_votes`. Telegram `/vote`
-      still writes the legacy `ideas.votes` counter directly with no
-      per-user record. Unify by giving Telegram votes the key
-      `tg:<user_id>` and routing `/vote` through `toggleVote`. Out of scope
-      for this iteration; left as a known limitation.
-- [ ] **Realtime board updates (deferred).** Board fetches once on load.
-      The agent moves cards; the UI doesn't notice until reload. Polling
+- [x] Prod GitHub OAuth App registered (separate from local).
+      Homepage `https://quorum.joao-f-o-goncalves.workers.dev`,
+      callback `…/auth/github/callback`.
+- [x] Three secrets set on the deployed Worker:
+      `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`,
+      `SESSION_SIGNING_KEY` (32-byte hex, distinct from local).
+- [x] `quorum/package.json` `predeploy` cleaned up — drops the unused
+      `VITE_API_BASE` override.
+- [x] `/api/dev-seed` gated. Returns 404 unless the request carries an
+      `X-Dev-Seed-Token` header matching the `DEV_SEED_TOKEN` secret.
+      Secret unset in prod → route invisible. Local: set
+      `DEV_SEED_TOKEN` in `quorum/.dev.vars` and pass the header.
+- [x] CORS pinned. `Access-Control-Allow-Origin` now reflects
+      `env.PUBLIC_BASE_URL` (wildcard fallback when var is missing,
+      i.e. local dev).
+
+Still to do, in order:
+
+- [ ] **Confirm `EDITOR_WHITELIST` in `quorum/wrangler.jsonc` is right
+      for prod** before pushing the deploy. Currently
+      `molefas,muffles,joao-f-o-goncalves,twody7`. It's a `var`, not a
+      secret — changes require a redeploy.
+- [ ] **Decide what `DEFAULT_BOARD_CHAT` should point at for the
+      live URL.** Currently `-5120669057` (team coord). Demo chat is
+      `-5224131572`. The bare URL (no `?chat=`) loads whichever this
+      points to; explicit `?chat=<id>` URLs work for both regardless.
+- [ ] **Run `cd quorum && npm run deploy`.** Predeploy rebuilds `web/`,
+      then `wrangler deploy` ships the Worker.
+- [ ] **Smoke test post-deploy** at the prod URL:
+      `/healthz` → `ok`; `/?chat=-5120669057` board loads with sign-in;
+      OAuth round-trip returns to the board with the GH avatar in the
+      header; vote button toggles; PATCH from a non-whitelisted account
+      returns 403.
+- [ ] **Sanity-test the OAuth callback on Safari** (and any other
+      browser the team uses). `SameSite=Lax` should be fine, but the
+      cross-site redirect from github.com → workers.dev is the failure
+      mode worth eyeballing.
+
+Out-of-scope for this iteration but tracked here for visibility:
+
+- [ ] **Telegram `/vote` per-user tracking.** Web votes track
+      `(idea_id, voter_key="gh:<login>")` in `idea_votes`. Telegram
+      `/vote` still writes the legacy `ideas.votes` counter directly,
+      no per-user row. Unify by giving Telegram votes the key
+      `tg:<user_id>` and routing `/vote` through `toggleVote`.
+- [ ] **Realtime board updates.** Board fetches once on load. The
+      agent moves cards; the UI doesn't notice until reload. Polling
       or websocket pass after deploy.
-- [ ] **CSRF token on `/auth/logout` and `POST /api/ideas/<uid>/vote`
-      (nice-to-have).** `SameSite=Lax` cookies cover the common case for a
-      hackathon prototype, but a proper CSRF token would be belt-and-suspenders.
+- [ ] **CSRF token on `/auth/logout` and the vote endpoint.**
+      `SameSite=Lax` cookies cover the common case for a hackathon
+      prototype, but a proper CSRF token would be belt-and-suspenders.
 
 ## Project: Quorum
 

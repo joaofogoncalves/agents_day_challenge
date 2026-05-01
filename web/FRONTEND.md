@@ -74,17 +74,20 @@ Click → modal. No drag, no drop, no inline edit, no context menu.
 
 ## Wiring to the API
 
-Endpoints live in `api/` (Cloudflare Worker + Durable Object SQLite). See `SPEC.md` "Board API" for the contract.
+Endpoints live in `quorum/` (Cloudflare Worker + Durable Object SQLite). The Worker also serves the built `web/dist` as static assets, so the prod UI is same-origin and the frontend uses relative paths (`/api/...`, `/auth/...`) — no `VITE_API_BASE`. See `SPEC.md` "HTTP endpoints" + "Board API" for the contract.
 
-- `GET /api/board` → `{ ideas: Idea[] }`
-- `PATCH /api/ideas/:uid` body `{ name?, long? }` → `{ idea: Idea }`
+- `GET /api/board[?chat=<id>]` → `{ ideas: Idea[] }` (each idea has `votes`, `voted_by_me`)
+- `PATCH /api/ideas/:uid` body `{ name?, long? }` → `{ idea: Idea }` — **editor whitelist required**
+- `POST /api/ideas/:uid/vote` → toggles one vote per `(idea, signed-in user)` — **session required**
+- `GET /api/me` → `{ login, avatar_url, can_vote, can_edit }` or `{}` if anon
+- `GET /auth/github/start`, `GET /auth/github/callback`, `POST /auth/logout` — GitHub OAuth + signed session cookie
 
-Set `VITE_API_BASE` (e.g. `https://quorum-api.<account>.workers.dev`) in the Vercel project (or `web/.env.local` for dev). If unset, the app falls back to `/mock.json` so the UI still loads without a backend — the footer displays `mock` vs. `live` so you can tell at a glance.
+For local dev the Vite dev server proxies `/api` and `/auth` to `http://127.0.0.1:8787`, keeping cookies same-origin (`localhost:5173`). If the Worker isn't running, the app falls back to `/mock.json` so the UI still loads — the footer reads `mock` vs. `live`.
 
-All API calls live in `web/src/api.js`. Save flow is **optimistic**: state updates immediately; on failure, the previous state is restored and the error logged to the console.
+All API calls live in `web/src/api.js`, with `credentials: 'include'` so the session cookie rides along. Save flow is **optimistic**: state updates immediately; on failure, previous state is restored and the error logged.
 
 ## Not implemented yet (intentionally)
 
 - No realtime — the agent moves cards in real life; the prototype doesn't refetch or websocket.
-- No auth, no per-chat scoping, no routing — the API exposes a single global board.
 - No retries / queue on save failures — the optimistic rollback is fire-and-forget.
+- No CSRF token. `SameSite=Lax` cookies cover the common case for a hackathon prototype.

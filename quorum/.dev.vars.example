@@ -15,3 +15,9 @@ GITHUB_OAUTH_CLIENT_SECRET=
 # Random 32-byte hex used to HMAC the session cookie. Generate with:
 #   openssl rand -hex 32
 SESSION_SIGNING_KEY=
+
+# ── Dev seed gate ────────────────────────────────────────────────
+# /api/dev-seed returns 404 unless the request carries an X-Dev-Seed-Token
+# header matching this value. Leave UNSET in prod — the route stays invisible.
+# Locally, set any string and pass it as the header when seeding.
+DEV_SEED_TOKEN=

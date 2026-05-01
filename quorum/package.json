@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "predeploy": "cd ../web && VITE_API_BASE=https://quorum.joao-f-o-goncalves.workers.dev npm run build",
+    "predeploy": "cd ../web && npm run build",
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
     "types": "wrangler types env.d.ts --include-runtime false",
