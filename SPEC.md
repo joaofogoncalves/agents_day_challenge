@@ -104,7 +104,7 @@ In addition to slash commands, the bot now reads every plain-text message and ac
    - `kill #N` → `setStatus(N, "killed")`
    - `park #N` → `setStatus(N, "parked")`
    - `promote #N` → `promote(N)`
-3. **LLM intent router** (only when **addressed** — `@<botUsername>`, reply-to-bot, or private chat). Runs `routeIntent(ai, target, priorContext, addressed)` against an OpenAI-style tool surface (`add_idea | propose_constraint | answer_question | record_member | noop`). The router is given the **target message** (the single line to act on) explicitly separated from **prior context** (older history, for situational awareness only — never a candidate for action). After dispatch, the target message's `intent_json` is set via `markRouted`, so it never re-fires next turn even though it stays in the rolling window. Confidence-banded:
+3. **LLM intent router** (only when **addressed** — `@<botUsername>`, reply-to-bot, or private chat). Runs `routeIntent(ai, target, priorContext, addressed)` against an OpenAI-style tool surface (`add_idea | propose_constraint | answer_question | record_member | validate_idea | noop`). The router is given the **target message** (the single line to act on) explicitly separated from **prior context** (older history, for situational awareness only — never a candidate for action). After dispatch, the target message's `intent_json` is set via `markRouted`, so it never re-fires next turn even though it stays in the rolling window. Confidence-banded:
    - `≥ 0.75` for safe non-cascading actions → execute, brief reply.
    - any `propose_constraint` → never auto-executes; stashes an `ActionPlan` in `pending_confirmations`, asks the user "reply *yes*…".
    - `noop` or low-confidence → minimal/no reply.
@@ -135,6 +135,7 @@ Reply format is plain text (Telegram MarkdownV2 escaping handled by `format.ts`)
 | `/park <id>` | id | status=parked | `#id parked. Eligible for backflow.` |
 | `/kill <id>` | id | status=killed | `#id killed. Still queryable.` |
 | `/why <id>` | id | Show validation reasoning + audit trail (joins `events`) | Multi-line: scores + reason + history |
+| `/validate <id>` | id | Re-run scoring on a single idea against the current team + context. Routable via `validate_idea` ("rescore #3", "revalidate idea 7"). | `#id score: N/10 — <reason>` |
 | `/rank` | — | Top 3 in active phase | List with score breakdown |
 | `/plan <id>` | id | LLM plan: milestones, risks, owners | Markdown block |
 

@@ -229,4 +229,5 @@ export type ActionPlan =
   | { kind: "propose_constraint"; text: string }
   | { kind: "answer_question"; question: string }
   | { kind: "record_member"; text: string }
+  | { kind: "validate_idea"; idea_id: number }
   | { kind: "noop" };

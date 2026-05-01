@@ -235,6 +235,19 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
     await ctx.reply(`Reanimated: ${re}. Demoted: ${dem}. Reason: ${out.reason}`);
   });
 
+  bot.command("validate", async (ctx) => {
+    const id = parseInt(ctx.match.trim(), 10);
+    if (!Number.isFinite(id)) return ctx.reply("usage: /validate <id>");
+    await ctx.reply(`Scoring #${id} …`);
+    try {
+      const scores = await agent.validateIdea(id);
+      const c = composite({ team: scores.team, resource: scores.resource });
+      await ctx.reply(`#${id} score: ${(c * 10).toFixed(0)}/10 — ${scores.reason}`);
+    } catch (e) {
+      await ctx.reply(`#${id} scoring failed: ${(e as Error).message}`);
+    }
+  });
+
   bot.command("plan", async (ctx) => {
     const id = parseInt(ctx.match.trim(), 10);
     if (!Number.isFinite(id)) return ctx.reply("usage: /plan <id>");
@@ -451,6 +464,19 @@ async function dispatchDecision(
       await ctx.reply(answer);
       return;
     }
+
+    case "validate_idea": {
+      // Re-scoring is read-and-update: it spends Neurons and overwrites the
+      // current score/reason, but doesn't move the idea between phases. Run
+      // directly when the router is confident; otherwise propose-confirm.
+      if (confidence >= HIGH_CONFIDENCE) {
+        await runValidateIdea(ctx, agent, plan.idea_id);
+      } else {
+        agent.setPendingConfirmation(authorId, plan);
+        await ctx.reply(`Re-score idea #${plan.idea_id}? Reply *yes* — or run \`/validate ${plan.idea_id}\`.`);
+      }
+      return;
+    }
   }
 }
 
@@ -488,11 +514,27 @@ async function executePlan(
       await ctx.reply(`Saved skills for you: [${skills.join(", ")}]`);
       return;
     }
+    case "validate_idea": {
+      await runValidateIdea(ctx, agent, plan.idea_id);
+      return;
+    }
     case "answer_question":
     case "noop":
       // Nothing to do; the proposal was for read-only or no-action.
       await ctx.reply("ok — done.");
       return;
+  }
+}
+
+/** Shared body of /validate and the validate_idea router arm. */
+async function runValidateIdea(ctx: Context, agent: QuorumAgent, ideaId: number): Promise<void> {
+  await ctx.reply(`Scoring #${ideaId} …`);
+  try {
+    const scores = await agent.validateIdea(ideaId);
+    const c = composite({ team: scores.team, resource: scores.resource });
+    await ctx.reply(`#${ideaId} score: ${(c * 10).toFixed(0)}/10 — ${scores.reason}`);
+  } catch (e) {
+    await ctx.reply(`#${ideaId} scoring failed: ${(e as Error).message}`);
   }
 }
 

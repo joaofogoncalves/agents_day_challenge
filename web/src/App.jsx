@@ -376,6 +376,13 @@ function Card({ idea, delay, onOpen, onVote, isAuthed }) {
 
   const [breakdownOpen, setBreakdownOpen] = useState(false);
 
+  // The backend's composite() floors team/resource at 0 but keeps the market
+  // placeholder at 0.5, so an unvalidated idea always lands at score=1. Don't
+  // surface that as a real score — show "—" until the agent has actually
+  // assigned team/resource fits.
+  const unvalidated = idea.score_team == null && idea.score_resource == null;
+  const scoreLabel = unvalidated ? '—' : idea.score;
+
   const handleVote = (e) => {
     e.stopPropagation();
     if (onVote) onVote(idea.uid);
@@ -410,11 +417,11 @@ function Card({ idea, delay, onOpen, onVote, isAuthed }) {
           role="button"
           tabIndex={0}
           aria-expanded={breakdownOpen}
-          aria-label={`Score ${idea.score} of 10. ${breakdownOpen ? 'Hide' : 'Show'} breakdown.`}
+          aria-label={`Score ${unvalidated ? 'pending' : `${idea.score} of 10`}. ${breakdownOpen ? 'Hide' : 'Show'} breakdown.`}
           onClick={toggleBreakdown}
           onKeyDown={onScoreKey}
         >
-          <span className="card__score-num">{idea.score}</span>
+          <span className="card__score-num">{scoreLabel}</span>
           <span className="card__score-den">/10</span>
           <span className="card__score-caret" aria-hidden="true">▾</span>
         </div>
@@ -485,6 +492,7 @@ function ScoreBar({ label, weight, value }) {
 function Editor({ idea, onClose, onSave }) {
   const [name, setName] = useState(idea.name);
   const [long, setLong] = useState(idea.long);
+  const unvalidated = idea.score_team == null && idea.score_resource == null;
 
   useEffect(() => {
     const onKey = (e) => {
@@ -525,7 +533,7 @@ function Editor({ idea, onClose, onSave }) {
 
           <div className="modal__row">
             <ReadOnly label="stage" value={idea.stage} />
-            <ReadOnly label="score" value={`${idea.score}/10`} />
+            <ReadOnly label="score" value={unvalidated ? '—/10' : `${idea.score}/10`} />
             <ReadOnly label="estimate" value={`~${idea.hours}h`} />
           </div>
 

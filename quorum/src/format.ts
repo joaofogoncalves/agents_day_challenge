@@ -91,6 +91,7 @@ export function help(): string {
     "",
     "_Insight_",
     "  /why <id> — full audit trail for an idea",
+    "  /validate <id> — re-score an idea against current team + context",
     "  /plan <id> — generate a plan: milestones, risks, owners",
     "",
     "_Meta_",

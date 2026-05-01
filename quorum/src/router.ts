@@ -92,6 +92,22 @@ const ROUTER_TOOLS: Tool[] = [
   {
     type: "function",
     function: {
+      name: "validate_idea",
+      description:
+        "Re-run scoring on a specific idea by numeric id. Use when the user explicitly asks to validate, score, re-score, or revalidate an idea — e.g. 'validate #3', 'rescore idea 7', 'check fit on #2'.",
+      parameters: {
+        type: "object",
+        properties: {
+          idea_id: { type: "number", description: "The integer idea id (e.g. 3 for '#3')." },
+          confidence: { type: "number", description: "0..1." },
+        },
+        required: ["idea_id", "confidence"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "noop",
       description: "Default. The message doesn't warrant action — small talk, off-topic, ambiguous, or unsafe.",
       parameters: { type: "object", properties: {} },
@@ -159,6 +175,14 @@ export async function routeIntent(
     case "record_member": {
       const text = String(call.args["text"] ?? "").trim() || target.text;
       return { plan: { kind: "record_member", text }, confidence: conf };
+    }
+    case "validate_idea": {
+      const raw = call.args["idea_id"];
+      const ideaId = typeof raw === "number" ? raw : parseInt(String(raw ?? ""), 10);
+      if (!Number.isFinite(ideaId) || ideaId <= 0) {
+        return { plan: { kind: "noop" }, confidence: 0 };
+      }
+      return { plan: { kind: "validate_idea", idea_id: ideaId }, confidence: conf };
     }
     default:
       return { plan: { kind: "noop" }, confidence: 0 };
