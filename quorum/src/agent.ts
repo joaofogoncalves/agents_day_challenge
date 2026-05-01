@@ -95,6 +95,106 @@ export class QuorumAgent extends Agent<Env> {
     const callerVoterKey = request.headers.get("x-quorum-voter") || null;
     const callerEditor = request.headers.get("x-quorum-editor") === "1";
 
+    if (url.pathname === "/socket") {
+      if (request.headers.get("Upgrade") !== "websocket") {
+        return new Response("expected websocket upgrade", { status: 426 });
+      }
+
+      // 50-socket soft cap per DO.
+      if (this.ctx.getWebSockets().length >= 50) {
+        return new Response("too many connections", { status: 503 });
+      }
+
+      const voterKey = request.headers.get("x-quorum-voter") ?? "";
+      const login = request.headers.get("x-quorum-login") || null;
+      const avatar = request.headers.get("x-quorum-avatar") || null;
+      if (!voterKey) return new Response("missing identity", { status: 400 });
+
+      const pair = new WebSocketPair();
+      const client = pair[0];
+      const server = pair[1];
+
+      const attachment: SocketAttachment = {
+        connection_id: crypto.randomUUID(),
+        voter_key: voterKey,
+        login,
+        avatar,
+        joined_at: Date.now(),
+      };
+      server.serializeAttachment(attachment);
+
+      this.ctx.acceptWebSocket(server);
+
+      // Build the hello snapshot from the DB.
+      const lastEventRow = (this.sql`SELECT COALESCE(MAX(id), 0) AS id FROM events`)[0] as { id: number } | undefined;
+      const last_event_id = lastEventRow?.id ?? 0;
+
+      const activityRows = this.sql`
+        SELECT id, event_type, idea_id, payload, created_at
+        FROM events
+        ORDER BY id DESC
+        LIMIT 50
+      ` as Array<{ id: number; event_type: string; idea_id: number | null; payload: string | null; created_at: number }>;
+
+      const activity: ActivityRow[] = activityRows
+        .reverse() // we want newest LAST in the snapshot (chronological)
+        .map((row) => {
+          let payload: Record<string, unknown> = {};
+          if (row.payload) {
+            try { payload = JSON.parse(row.payload); } catch { payload = {}; }
+          }
+          const by = (payload.by as ActorRef | undefined) ?? { kind: "agent" };
+          const target_uid = row.idea_id != null
+            ? `qrm_${String(row.idea_id).padStart(6, "0")}`
+            : null;
+          return this.activityRowFromEvent({
+            event_id: row.id,
+            event_kind: row.event_type as import("./schema").EventType,
+            target_uid,
+            by,
+            ts: row.created_at,
+            payload,
+          });
+        });
+
+      const helloActor: ActorRef = login
+        ? { kind: "user", login, avatar: avatar ?? "" }
+        : { kind: "anon", id: voterKey.startsWith("anon:") ? voterKey.slice(5) : voterKey };
+
+      const helloMsg: Wire = {
+        kind: "hello",
+        snapshot: {
+          ideas: this.getBoard(voterKey),
+          activity,
+          presence: this.currentPresence(),
+          me: {
+            voter_key: voterKey,
+            login,
+            can_edit: request.headers.get("x-quorum-editor") === "1",
+          },
+          last_event_id,
+        },
+      };
+
+      try {
+        server.send(JSON.stringify(helloMsg));
+      } catch {
+        // unlikely on a freshly-accepted socket
+      }
+
+      // Tell everyone else this person joined.
+      this.broadcastWire({
+        kind: "presence_join",
+        presence: {
+          connection_id: attachment.connection_id,
+          actor: helloActor,
+          joined_at: attachment.joined_at,
+        },
+      });
+
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
     if (url.pathname === "/board" && request.method === "GET") {
       // Forwarded by the Worker only when the request carried a valid GitHub
       // session — sign-in is enough to land on the team rail, /gh from
