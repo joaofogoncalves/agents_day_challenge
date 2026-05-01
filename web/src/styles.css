@@ -159,6 +159,51 @@ input, textarea { font: inherit; color: inherit; }
   margin: 0 4px;
 }
 
+.head__deadline {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  color: var(--ink-1);
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: default;
+}
+
+.head__deadline--editable {
+  cursor: pointer;
+}
+.head__deadline--editable:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.head__deadline--add {
+  color: var(--mute);
+  border-style: dashed;
+  cursor: pointer;
+}
+.head__deadline--add:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.head__deadline-input {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-1);
+  background: var(--bg-1);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 4px 10px;
+  outline: none;
+  min-width: 160px;
+}
+
 /* ──────────────────────  AUTH WIDGET  ───────────────────────── */
 
 .auth {

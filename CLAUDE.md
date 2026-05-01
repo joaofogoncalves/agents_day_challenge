@@ -25,7 +25,8 @@ This file is a thin orientation layer on top of the above. Don't restate them he
 |---|---|---|
 | Board UI | `https://quorum.joao-f-o-goncalves.workers.dev/?chat=<id>` | Reads `?chat=` from URL → `/api/board?chat=...`. Without `?chat=`, falls back to `DEFAULT_BOARD_CHAT` var. |
 | Telegram webhook | `https://quorum.joao-f-o-goncalves.workers.dev/webhook` | Signature-checked via `TELEGRAM_WEBHOOK_SECRET` |
-| Board JSON | `https://quorum.joao-f-o-goncalves.workers.dev/api/board[?chat=<id>]` | Returns `{ ideas, name }`. CORS pinned to `PUBLIC_BASE_URL` |
+| Board JSON | `https://quorum.joao-f-o-goncalves.workers.dev/api/board[?chat=<id>]` | Returns `{ ideas, name, deadline }`. CORS pinned to `PUBLIC_BASE_URL` |
+| Board PATCH | `PATCH /api/board[?chat=<id>]` body `{name?, deadline?}` | Auth required (session + editor whitelist). Writes append `context_changed` |
 | Idea PATCH | `PATCH /api/ideas/:uid[?chat=<id>]` body `{name?, long?}` | Auth required (session + editor whitelist). Writes append `idea_edited` |
 | Vote toggle | `POST /api/ideas/:uid/vote[?chat=<id>]` | Auth required (any GitHub user). Idempotent toggle |
 | Auth | `GET /auth/github/start`, `GET /auth/github/callback`, `POST /auth/logout`, `GET /api/me` | GitHub OAuth + signed session cookie |
@@ -80,7 +81,7 @@ Sponsor: **Cloudflare** — "Build a Personal Agent that Automates a Meaningful 
 - **Workers AI**: Llama 3.3 70B fp8-fast (default) → Llama 3.1 8B fast (fallback). All LLM calls go here (Path A — no Anthropic). Wrapper in `quorum/src/llm.ts`.
 - **Cloudflare Workers Static Assets** — the `web/` build (Vite + React) is deployed as part of the same Worker via `assets.directory` in `wrangler.jsonc`. **One URL, one account, one Worker** — Telegram + board UI + JSON API all share the same `QuorumAgent` Durable Object per chat.
 - **Telegram Bot API + grammY** (inside `Agent.onRequest`, via `webhookCallback`)
-- **Cron Triggers** (planned for deadline + stall nudges; not yet wired)
+- **`Agent.schedule()`** for deadline nudges (T-72h / T-24h / T-0), wired through `setDeadline()` in `quorum/src/agent.ts`. Stall nudges are still on the wishlist.
 - **Escape hatch** if validation quality is bad: Gemini 2.5 Flash via Cloudflare AI Gateway. No Anthropic in the stack.
 
 ## Architecture (post-merge)

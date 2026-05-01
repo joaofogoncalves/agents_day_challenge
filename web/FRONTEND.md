@@ -40,7 +40,7 @@ type Idea = {
 };
 ```
 
-Mock list lives at `web/public/mock.json` under `{ "ideas": Idea[], "name": string }`. Replace with a real fetch when the API exists; the response shape should stay `{ ideas: Idea[], name: string | null }`.
+Mock list lives at `web/public/mock.json` under `{ "ideas": Idea[], "name": string, "deadline": string }`. Replace with a real fetch when the API exists; the response shape should stay `{ ideas: Idea[], name: string | null, deadline: string | null }`.
 
 ## What the user can edit vs. what the agent owns
 
@@ -77,12 +77,14 @@ Click anywhere else on the card → modal. No drag, no drop, no inline edit, no 
 - **Stage ids** in code, in JSON, in the API: lowercase singular — `bucket`, `candidates`, `selected`. Never the human label.
 - **Idea ids** are agent-issued, prefix `qrm_`, opaque. Treat as strings.
 - The product is **Quorum**. Each board has its own human name (set per-chat via `/start <name>` or `/name <name>`), shown next to the wordmark in the header. Falls back to the `— what to build` tag when unset.
+- The board's **deadline** is shown as a pill in the header meta (`🗓 <date>`). Editors can click to inline-edit, viewers see it read-only. Set per-chat via `/deadline <when>` in Telegram, the inline header pill in the UI, or extracted by `/event <url>`. Stored at `context.deadline`, free-form string. Falls back to a dashed `+ deadline` button for editors when unset; hidden entirely for viewers when unset.
 
 ## Wiring to the API
 
 Endpoints live in `quorum/` (Cloudflare Worker + Durable Object SQLite). The Worker also serves the built `web/dist` as static assets, so the prod UI is same-origin and the frontend uses relative paths (`/api/...`, `/auth/...`) — no `VITE_API_BASE`. See `SPEC.md` "HTTP endpoints" + "Board API" for the contract.
 
-- `GET /api/board[?chat=<id>]` → `{ ideas, name, team, context }` (each idea has `votes`, `voted_by_me`; `team` and `context` drive the left rail — see SPEC for shapes)
+- `GET /api/board[?chat=<id>]` → `{ ideas, name, deadline, team, context }` (each idea has `votes`, `voted_by_me`; `team` and `context` drive the left rail — see SPEC for shapes; `deadline` is lifted from `context.deadline` to the top level for the header pill)
+- `PATCH /api/board[?chat=<id>]` body `{ name?, deadline? }` → `{ name, deadline }` — **editor whitelist required + CSRF**
 - `PATCH /api/ideas/:uid` body `{ name?, long? }` → `{ idea: Idea }` — **editor whitelist required**
 - `POST /api/ideas/:uid/vote` → toggles one vote per `(idea, signed-in user)` — **session required**
 - `GET /api/me` → `{ login, avatar_url, can_vote, can_edit }` or `{}` if anon

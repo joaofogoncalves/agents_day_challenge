@@ -204,6 +204,30 @@ export default {
       );
     }
 
+    // PATCH /api/board — board-level metadata (name, deadline). Editor-gated + CSRF.
+    if (url.pathname === "/api/board" && request.method === "PATCH") {
+      const session = await readSession(request, env);
+      if (!session) return corsJson(env, { error: "unauthorized" }, 401);
+      if (!isEditor(session.login, env)) return corsJson(env, { error: "forbidden" }, 403);
+      if (!validateCsrf(request)) return corsJson(env, { error: "csrf" }, 403);
+      const chat = resolveBoardChat(env, url);
+      if (!chat) return corsJson(env, { error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
+      const id = env.QuorumAgent.idFromName(chat);
+      const stub = env.QuorumAgent.get(id);
+      return stub.fetch(
+        new Request(new URL("/board", request.url).toString(), {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            "x-quorum-voter": voterKey(session.login),
+            "x-quorum-login": session.login,
+            "x-quorum-editor": "1",
+          },
+          body: await request.text(),
+        }),
+      );
+    }
+
     // POST /api/ideas/<uid>/vote — toggle vote (auth required, any GitHub user).
     if (
       url.pathname.startsWith("/api/ideas/") &&

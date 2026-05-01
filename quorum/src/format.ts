@@ -81,6 +81,7 @@ export function help(): string {
     "",
     "_Context_",
     "  /event <url> — pull deadline & challenges from a page",
+    "  /deadline [when] — set or show the team's shipping deadline",
     "  /constraint <text> — re-validate against a new constraint",
     "",
     "_Team_",

@@ -33,6 +33,8 @@ import { complete, loadPrompt, parseJson, type ChatMessage } from "./llm";
 import scoringPrompt from "../prompts/scoring.md";
 import planPrompt from "../prompts/plan.md";
 
+type NudgeKind = "soon" | "today" | "now";
+
 export class QuorumAgent extends Agent<Env> {
   private bot?: Bot;
 
@@ -94,8 +96,33 @@ export class QuorumAgent extends Agent<Env> {
       return jsonResponse({
         ideas: this.getBoard(callerVoterKey),
         name: this.getBoardName(),
+        deadline: this.getDeadline(),
         team: this.getTeamForBoard(),
         context: this.getContextForBoard(),
+      });
+    }
+
+    if (url.pathname === "/board" && request.method === "PATCH") {
+      if (!callerEditor) return jsonResponse({ error: "forbidden" }, 403);
+      let body: { name?: unknown; deadline?: unknown };
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: "invalid json" }, 400);
+      }
+      let touched = false;
+      if (typeof body.name === "string") {
+        this.setBoardName(body.name);
+        touched = true;
+      }
+      if (typeof body.deadline === "string") {
+        await this.setDeadline(body.deadline);
+        touched = true;
+      }
+      if (!touched) return jsonResponse({ error: "nothing to update" }, 400);
+      return jsonResponse({
+        name: this.getBoardName(),
+        deadline: this.getDeadline(),
       });
     }
 
@@ -424,9 +451,9 @@ export class QuorumAgent extends Agent<Env> {
 
   /**
    * Stash the Telegram chat ID this DO is bound to. Called on every webhook
-   * hit; UPSERT keeps it cheap. We need this because the DO is keyed by an
-   * opaque hash of the chat ID, not the ID itself, so the cron callback has
-   * no other way to address the chat.
+   * hit; UPSERT keeps it cheap. The DO is keyed via `idFromName(chatId)` so
+   * `this.name` _should_ return the chat ID, but storing it explicitly is
+   * the defensive option — schedule callbacks otherwise have no fallback.
    */
   private rememberChatId(chatId: string): void {
     const now = Date.now();
@@ -437,12 +464,14 @@ export class QuorumAgent extends Agent<Env> {
     `;
   }
 
-  /** Numeric Telegram chat ID, or null until the first webhook hit lands. */
+  /** Numeric Telegram chat ID, or null until the first webhook hit lands.
+   *  Falls back to `this.name` when the explicit row hasn't been written
+   *  yet (e.g. if a schedule fires before the chat has hit the webhook). */
   private getChatId(): string | null {
     const rows = this.sql<{ value: string }>`
       SELECT value FROM context WHERE key = 'chat_id'
     `;
-    return rows[0]?.value ?? null;
+    return rows[0]?.value ?? this.name ?? null;
   }
 
   // ── Stall-nudge cron ─────────────────────────────────────────────
@@ -479,6 +508,111 @@ export class QuorumAgent extends Agent<Env> {
       // Don't crash the schedule on a transient Telegram error; it'll fire
       // again tomorrow on the next tick.
       console.error("stallNudgeTick: sendMessage failed:", e);
+    }
+  }
+
+  // ── Deadline (free-form context value + cron) ────────────────────
+
+  /** Free-form deadline string (e.g. "May 1 2026", "next Friday"). Same
+   *  context['deadline'] key the scoring + plan prompts already read. */
+  getDeadline(): string | null {
+    const rows = this.sql<{ value: string }>`
+      SELECT value FROM context WHERE key = 'deadline'
+    `;
+    const v = rows[0]?.value?.trim();
+    return v ? v : null;
+  }
+
+  /** Set or clear the deadline. Empty string clears. Returns the cleaned value.
+   *  Side effect: cancels any prior `nudgeDeadline` schedules; if the new
+   *  value parses to a future Date, schedules T-72h / T-24h / T-0 nudges.
+   *  Free-form strings that don't parse are stored verbatim but skip scheduling. */
+  async setDeadline(deadline: string): Promise<string | null> {
+    const cleaned = deadline.trim().slice(0, 200);
+    const now = Date.now();
+    if (cleaned === "") {
+      this.sql`DELETE FROM context WHERE key = 'deadline'`;
+      this.appendEvent(null, "context_changed", { deadline: null });
+      await this.cancelDeadlineNudges();
+      return null;
+    }
+    this.sql`
+      INSERT INTO context (key, value, updated_at)
+      VALUES ('deadline', ${cleaned}, ${now})
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `;
+    this.appendEvent(null, "context_changed", { deadline: cleaned });
+    await this.cancelDeadlineNudges();
+    const parsed = Date.parse(cleaned);
+    if (Number.isFinite(parsed)) {
+      await this.scheduleDeadlineNudges(new Date(parsed));
+    }
+    return cleaned;
+  }
+
+  /** Cancel every pending nudgeDeadline schedule on this DO. Called before
+   *  re-scheduling and when the deadline is cleared. */
+  private async cancelDeadlineNudges(): Promise<void> {
+    const all = await this.listSchedules({});
+    for (const s of all) {
+      if (s.callback === "nudgeDeadline") {
+        await this.cancelSchedule(s.id);
+      }
+    }
+  }
+
+  /** Schedule one-shots at T-72h / T-24h / T-0. Past times are skipped — if
+   *  the deadline itself is past, nothing fires (caller still stored the string). */
+  private async scheduleDeadlineNudges(date: Date): Promise<void> {
+    const ms = date.getTime();
+    const now = Date.now();
+    const points: Array<{ kind: NudgeKind; ts: number }> = [
+      { kind: "soon", ts: ms - 72 * 3600 * 1000 },
+      { kind: "today", ts: ms - 24 * 3600 * 1000 },
+      { kind: "now", ts: ms },
+    ];
+    for (const p of points) {
+      if (p.ts <= now) continue;
+      await this.schedule(new Date(p.ts), "nudgeDeadline", { kind: p.kind });
+    }
+  }
+
+  /** Scheduled callback. Posts a nudge to the chat keyed off how close we are
+   *  to the deadline. Each kind reads live counts at firing time so the message
+   *  reflects current state, not state when the schedule was registered. */
+  async nudgeDeadline(payload: { kind: NudgeKind }): Promise<void> {
+    const chatId = this.getChatId();
+    if (!chatId) return;
+    const deadline = this.getDeadline();
+    // User cleared the deadline between scheduling and firing — drop silently.
+    if (!deadline) return;
+
+    const counts = this.sql<{ status: string; n: number }>`
+      SELECT status, COUNT(*) as n FROM ideas GROUP BY status
+    `;
+    const by: Record<string, number> = {};
+    for (const r of counts) by[r.status] = r.n;
+    const bucket = by["ideating"] ?? 0;
+    const candidates = by["validating"] ?? 0;
+    const selected = by["planning"] ?? 0;
+
+    let text: string;
+    switch (payload.kind) {
+      case "soon":
+        text = `🗓 3 days to deadline (${deadline}). Bucket: ${bucket}, Candidates: ${candidates}, Selected: ${selected}. Anything to promote, kill, or park?`;
+        break;
+      case "today":
+        text = `🗓 24h to deadline (${deadline}). Final calls — Candidates: ${candidates}, Selected: ${selected}. Lock it in?`;
+        break;
+      case "now":
+        text = `🗓 Deadline reached (${deadline}). Selected: ${selected}, Candidates left: ${candidates}, Bucket: ${bucket}.`;
+        break;
+    }
+
+    try {
+      await this.getBot().api.sendMessage(chatId, text);
+    } catch (e) {
+      console.error("nudgeDeadline sendMessage failed:", e);
     }
   }
 

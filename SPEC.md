@@ -131,6 +131,7 @@ Reply format is plain text (Telegram MarkdownV2 escaping handled by `format.ts`)
 | `/team` | — | Aggregate skills + gaps | `Strong: [...]. Gaps: [...]. Members: N.` |
 | `/forget` | — | DELETE from `members` where user_id=caller | `Wiped.` |
 | `/name [text]` | optional name | Set or show this board's name. `-` clears. Stored in `context` under key `board_name`. | `Board renamed to: …` / `Board name cleared.` |
+| `/deadline [when]` | optional free-form date string | Set or show the team's shipping deadline. `-` clears. Stored in `context` under key `deadline` — same key the scoring + plan prompts already read, and the same key `/event` populates. When the string parses as a future date, `Agent.schedule()` queues nudges at T-72h / T-24h / T-0; clearing or replacing cancels the prior queue. | `Deadline set: <when>` + nudge note / `Deadline cleared.` |
 | `/promote <id>` | id | Move to next phase | `#id: ideating → validating` |
 | `/park <id>` | id | status=parked | `#id parked. Eligible for backflow.` |
 | `/kill <id>` | id | status=killed | `#id killed. Still queryable.` |
@@ -152,6 +153,7 @@ Reply format is plain text (Telegram MarkdownV2 escaping handled by `format.ts`)
 | `GET` | `/api/me` | optional session | Returns `{login, avatar_url, can_vote, can_edit, csrf_token}` or `{}`. Lazily mints `quorum_csrf` if missing |
 | `GET` | `/api/board` | optional session (used to compute `voted_by_me`) | Board JSON for `web/` (see "Board API") |
 | `PATCH` | `/api/ideas/<uid>` | session + editor whitelist + **CSRF** | Edit `name` / `long` from the board UI |
+| `PATCH` | `/api/board` | session + editor whitelist + **CSRF** | Edit board metadata: `name`, `deadline` |
 | `POST` | `/api/ideas/<uid>/vote` | session (any GitHub user) + **CSRF** | Idempotent toggle of one vote per `(idea, voter)` |
 | `POST` | `/api/dev-seed` | `X-Dev-Seed-Token` matching `DEV_SEED_TOKEN` secret | Local-only seed; route 404s when secret is unset |
 
@@ -194,7 +196,7 @@ Derived, not stored. `score = round(composite × 10)` clamped to `[0, 10]` where
 
 ### Endpoints
 
-`GET /api/board` returns `{ ideas: Idea[], name: string | null, team: BoardMember[], context: ContextEntry[] }` ordered by `id ASC`, restricted to board-visible statuses. `name` is the human-readable board name (set via `/start <name>` or `/name`, stored in `context.board_name`). `team` is the per-chat member list — telegram user IDs are **not** exposed. `context` is the per-chat key/value block, with `board_name` excluded (already top-level) and JSON-shaped values (`constraints`, `challenges`) parsed.
+`GET /api/board` returns `{ ideas: Idea[], name: string | null, deadline: string | null, team: BoardMember[], context: ContextEntry[] }` ordered by `id ASC`, restricted to board-visible statuses. `name` is the human-readable board name (set via `/start <name>` or `/name`, stored in `context.board_name`). `deadline` is the team's free-form shipping deadline lifted from `context.deadline` to the top level so the UI doesn't have to scan the array (set via `/deadline`, `PATCH /api/board`, or `/event` URL extraction). `team` is the per-chat member list — telegram user IDs are **not** exposed. `context` is the per-chat key/value block, with `board_name` excluded (already top-level) and JSON-shaped values (`constraints`, `challenges`) parsed; `deadline` still appears here for completeness so anything reading the array sees the same source of truth.
 
 ```ts
 type BoardMember = {
@@ -234,6 +236,8 @@ The `score_*` fields back the in-card "click the score to see the breakdown" UI 
 
 `PATCH /api/ideas/<uid>` accepts `{ name?: string, long?: string }`. Other fields are agent-owned and rejected. Writes append an `idea_edited` row to `events`. Response: `{ idea: Idea }`.
 
+`PATCH /api/board` accepts `{ name?: string, deadline?: string }`. Editor-only. Each provided string overwrites the corresponding `context` row (`board_name`, `deadline`); empty string clears. Writes append a `context_changed` event. Response: `{ name, deadline }`.
+
 CORS is pinned to `env.PUBLIC_BASE_URL` in prod (wildcard fallback when the var is unset, e.g. local dev). The board UI is same-origin in prod, so CORS only matters for stray third-party callers.
 
 ### Schema additions
@@ -253,6 +257,9 @@ The Agent class is the canonical state owner. All command handlers go through th
 | `getTeamForBoard()` | — | `BoardMember[]` | Public projection of `members` for the web UI. Telegram user IDs are NOT exposed; only `name`, `gh_user`, `skills`, `availability`. Drives the rail's "Team" section. |
 | `getContextForBoard()` | — | `ContextEntry[]` | Public projection of `context` for the web UI. `board_name` excluded; JSON-shaped values (`constraints`, `challenges`) parsed into arrays. Drives the rail's "Context" section. |
 | `setBoardName(name)` | `string` | `string \| null` | Set / clear (`""`) the board name. Trimmed and clipped to 80 chars. Logs a `context_changed` event. |
+| `getDeadline()` | — | `string \| null` | Read the free-form deadline string from `context.deadline`. Already consumed by `validateIdea` and `planFor`; now also surfaced via `/api/board` and the board header. |
+| `setDeadline(deadline)` | `string` | `Promise<string \| null>` | Set / clear (`""`) the deadline. Trimmed and clipped to 200 chars. Logs a `context_changed` event. **Side effect**: cancels any previously-scheduled `nudgeDeadline` runs; if the new value parses via `Date.parse()` and is in the future, schedules one-shots at T-72h / T-24h / T-0 via `Agent.schedule()`. Strings that don't parse (e.g. `"end of sprint"`) are stored verbatim but skip scheduling. |
+| `nudgeDeadline({ kind })` | `{ kind: "soon" \| "today" \| "now" }` | `Promise<void>` | Scheduled callback. Posts a deadline-aware message to the chat (`bot.api.sendMessage(this.name, …)`). Reads live idea counts at firing time, not registration time, so the message reflects the current board. Drops silently if the deadline was cleared between scheduling and firing. |
 | `listIdeas(phase?)` | `string?` | `Idea[]` | `/ideas`, `/rank` |
 | `rank(limit)` | `number` | `Idea[]` | `/rank`, router `answer_question` |
 | `setContext(updates)` | `Record<string,string>` | `{ recomputed: number }` | `/event`, `/constraint` |

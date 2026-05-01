@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { fetchBoard, fetchMe, patchIdea, voteIdea, logout, usingMock } from './api.js';
+import { fetchBoard, fetchMe, patchIdea, voteIdea, logout, patchBoard, usingMock } from './api.js';
 
 const COLUMNS = [
   { id: 'bucket', label: 'Bucket', hint: 'raw ideas, unconverged' },
@@ -10,6 +10,7 @@ const COLUMNS = [
 export default function App() {
   const [ideas, setIdeas] = useState([]);
   const [boardName, setBoardName] = useState(null);
+  const [deadline, setDeadline] = useState(null);
   const [team, setTeam] = useState([]);
   const [context, setContext] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -23,6 +24,7 @@ export default function App() {
       .then(([board, who]) => {
         setIdeas(board.ideas ?? []);
         setBoardName(board.name ?? null);
+        setDeadline(board.deadline ?? null);
         setTeam(board.team ?? []);
         setContext(board.context ?? []);
         setMe(who);
@@ -87,9 +89,31 @@ export default function App() {
   const canEdit = !!me?.can_edit;
   const canVote = !!me?.can_vote;
 
+  // Optimistic deadline save. Empty string clears.
+  const saveDeadline = useCallback(async (next) => {
+    const cleaned = (next ?? '').trim();
+    const prev = deadline;
+    setDeadline(cleaned || null);
+    try {
+      const res = await patchBoard({ deadline: cleaned });
+      setDeadline(res?.deadline ?? null);
+    } catch (e) {
+      console.error('deadline save failed', e);
+      setError(e.message);
+      setDeadline(prev);
+    }
+  }, [deadline]);
+
   return (
     <div className="app">
-      <Header total={ideas.length} me={me} boardName={boardName} />
+      <Header
+        total={ideas.length}
+        me={me}
+        boardName={boardName}
+        deadline={deadline}
+        canEdit={canEdit}
+        onSaveDeadline={saveDeadline}
+      />
 
       <main className="body">
         <Rail team={team} context={context} loading={loading} />
@@ -131,7 +155,7 @@ export default function App() {
   );
 }
 
-function Header({ total, me, boardName }) {
+function Header({ total, me, boardName, deadline, canEdit, onSaveDeadline }) {
   const isAuthed = !!me?.login;
   const isEditor = !!me?.can_edit;
 
@@ -160,6 +184,11 @@ function Header({ total, me, boardName }) {
         )}
       </div>
       <div className="head__meta">
+        <DeadlineChip
+          deadline={deadline}
+          canEdit={canEdit && !usingMock}
+          onSave={onSaveDeadline}
+        />
         <span className="head__count">
           <em>{String(total).padStart(2, '0')}</em> ideas in flight
         </span>
@@ -182,6 +211,70 @@ function Header({ total, me, boardName }) {
         )}
       </div>
     </header>
+  );
+}
+
+function DeadlineChip({ deadline, canEdit, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(deadline ?? '');
+
+  useEffect(() => {
+    setDraft(deadline ?? '');
+  }, [deadline]);
+
+  if (!deadline && !canEdit) return null;
+
+  const commit = () => {
+    setEditing(false);
+    if ((draft ?? '').trim() !== (deadline ?? '')) onSave(draft);
+  };
+  const cancel = () => {
+    setDraft(deadline ?? '');
+    setEditing(false);
+  };
+  const onKey = (e) => {
+    if (e.key === 'Enter') commit();
+    if (e.key === 'Escape') cancel();
+  };
+
+  if (editing) {
+    return (
+      <input
+        className="head__deadline-input"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={onKey}
+        placeholder="e.g. May 1 2026"
+        autoFocus
+      />
+    );
+  }
+
+  if (!deadline) {
+    return (
+      <button
+        className="head__deadline head__deadline--add"
+        onClick={() => setEditing(true)}
+        title="Set a deadline"
+        type="button"
+      >
+        + deadline
+      </button>
+    );
+  }
+
+  return (
+    <button
+      className={`head__deadline${canEdit ? ' head__deadline--editable' : ''}`}
+      onClick={canEdit ? () => setEditing(true) : undefined}
+      disabled={!canEdit}
+      title={canEdit ? 'Click to edit deadline' : 'Deadline'}
+      type="button"
+    >
+      <span aria-hidden="true">🗓</span>
+      <span>{deadline}</span>
+    </button>
   );
 }
 

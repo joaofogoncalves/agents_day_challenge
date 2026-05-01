@@ -37,9 +37,18 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
     const arg = ctx.match.trim();
     if (arg) agent.setBoardName(arg);
     const name = agent.getBoardName();
+    const deadline = agent.getDeadline();
     const lines = [fmt.welcome(name), "", "📋 Live board for this chat:", boardUrl];
     if (!name) {
       lines.push("", "What should we call this board? Reply with `/name <something>`.");
+    }
+    if (!deadline) {
+      lines.push(
+        "",
+        "When are you shipping? Reply with `/deadline <when>` (e.g. `/deadline May 1 2026`).",
+      );
+    } else {
+      lines.push("", `🗓 Deadline: ${deadline}`);
     }
     await ctx.reply(lines.join("\n"), { parse_mode: "Markdown" });
   });
@@ -60,6 +69,27 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
     }
     const saved = agent.setBoardName(text);
     await ctx.reply(`Board renamed to: ${saved ?? text}`);
+  });
+
+  bot.command("deadline", async (ctx) => {
+    const text = ctx.match.trim();
+    if (!text) {
+      const current = agent.getDeadline();
+      return ctx.reply(
+        current
+          ? `Deadline: ${current}\nUse "/deadline <when>" to change it, or "/deadline -" to clear.`
+          : `No deadline set. Use "/deadline <when>" (e.g. "/deadline May 1 2026").`,
+      );
+    }
+    if (text === "-" || text === "—") {
+      await agent.setDeadline("");
+      return ctx.reply("Deadline cleared.");
+    }
+    const saved = await agent.setDeadline(text);
+    const note = Number.isFinite(Date.parse(saved ?? text))
+      ? "I'll nudge the chat at T-72h, T-24h, and T-0."
+      : "(I couldn't parse a date — I'll keep it on the board, but I won't be able to nudge you.)";
+    await ctx.reply(`Deadline set: ${saved ?? text}\n${note}`);
   });
 
   bot.command("help", async (ctx) => {
@@ -211,10 +241,12 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
     }
     const extracted = await extractEvent(agent.bindings.AI, body.slice(0, 16000));
     const updates: Record<string, string> = { event_url: url };
-    if (extracted.deadline) updates.deadline = extracted.deadline;
     if (extracted.constraints?.length) updates.constraints = JSON.stringify(extracted.constraints);
     if (extracted.challenges?.length) updates.challenges = JSON.stringify(extracted.challenges);
     const result = await agent.setContext(updates);
+    // Route deadline through setDeadline so it triggers the T-72h/T-24h/T-0
+    // schedule wiring, not just a bare context write.
+    if (extracted.deadline) await agent.setDeadline(extracted.deadline);
     const summary = [
       extracted.deadline ? `deadline=${extracted.deadline}` : null,
       extracted.constraints?.length ? `constraints=${extracted.constraints.length}` : null,

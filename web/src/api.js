@@ -93,3 +93,17 @@ export async function logout() {
   });
   csrfToken = null;
 }
+
+export async function patchBoard(patch) {
+  if (usingMock) return patch;
+  const r = await fetch(`/api/board${chatParam()}`, {
+    ...FETCH_OPTS,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    body: JSON.stringify(patch),
+  });
+  if (r.status === 401) throw new Error('unauthorized — sign in first');
+  if (r.status === 403) throw new Error('forbidden — editor whitelist required');
+  if (!r.ok) throw new Error(`PATCH /api/board failed: ${r.status}`);
+  return r.json();
+}

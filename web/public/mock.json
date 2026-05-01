@@ -1,5 +1,6 @@
 {
   "name": "Hackathon — Agents Day",
+  "deadline": "May 1 2026",
   "team": [
     { "name": "Joao", "gh_user": "joaofogoncalves", "skills": ["typescript", "cloudflare workers", "react"], "availability": null },
     { "name": "Rui", "gh_user": "molefas", "skills": ["product", "design", "telegram"], "availability": "evenings" },
