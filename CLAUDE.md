@@ -14,6 +14,22 @@ Hackathon repository (Cloudflare-sponsored Agents Day, May 1 2026). The project 
 
 This file is a thin orientation layer on top of the above. Don't restate them here — point to them.
 
+## Current WIP — board UI (Rui)
+
+Visual kanban surface for the ideas the agent manages. 3 columns (Bucket / Candidates / Selected for Development). Agent-controlled — no drag & drop. Click a card to edit `name` and long description; everything else is agent-owned.
+
+**Done:**
+- `web/` — Vite + React frontend (dark techno-editorial). Reads `VITE_API_BASE` or falls back to `/mock.json`. Optimistic save with rollback. See `web/FRONTEND.md`.
+- `api/` — standalone Cloudflare Worker + Durable Object with embedded SQLite (`new_sqlite_classes`). Schema mirrors `SPEC.md` `ideas` + `events` with additive columns (`name`, `brief`, `long`, `hours`). One global `BoardAgent` instance, seeded from `api/src/seed.js` on first boot. See `api/README.md`.
+- Contract: `SPEC.md` "Board API" — stage↔status / uid↔id / score (1–10) derivation all documented.
+- **Local end-to-end works:** `cd api && npm run dev` (Wrangler on `:8787`) + `cd web && npm run dev` (Vite on `:5173`). `web/.env.local` has `VITE_API_BASE=http://127.0.0.1:8787`. Edits round-trip through the DO's SQLite and persist across reloads (`api/.wrangler/`).
+
+**Missing / next:**
+- **Cloudflare deploy** — nothing has been pushed to any Cloudflare account yet. We'll pick an owner (likely João, since `quorum/` is already there) and deploy from one machine. Each teammate can also deploy to their own account for local testing if needed.
+- **Fold `api/` into `quorum/`** — two Workers can't share SQLite, so the board has to live inside `QuorumAgent` per-chat for the demo to reflect real Telegram-driven state. Plan: lift the `/api/board` + `/api/ideas/:uid` routes and the uid/stage/score helpers into `quorum/src/index.ts`, drop `api/`.
+- **Per-chat scoping** — board endpoint should accept a chat key (token or path param) once folded; currently single global instance.
+- **Realtime** — the agent moves cards; the prototype currently fetches once on load. Polling or websocket pass after the fold.
+
 ## Project: Quorum
 
 A chat-native agent for the new bottleneck in software: knowing *what* to build. AI has commoditized execution; the cost of picking the wrong thing now exceeds the cost of building it. Quorum lives in a team's group chat (Telegram now, Slack-adapter-ready) and converges them onto the right thing to build. Three phases (Ideation / Validation / Planning) with **backflow** between them. Grounded in real team skills via GitHub or self-declared `/me` text.
