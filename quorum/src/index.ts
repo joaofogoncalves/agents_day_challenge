@@ -15,11 +15,15 @@
 
 import { QuorumAgent } from "./agent";
 import {
+  csrfSetCookie,
   finishOAuth,
+  getCsrfFromCookies,
   isEditor,
   logoutResponse,
+  mintCsrfToken,
   readSession,
   startOAuth,
+  validateCsrf,
   voterKey,
 } from "./auth";
 
@@ -51,7 +55,7 @@ function corsHeaders(env: Env): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET, PATCH, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Dev-Seed-Token",
+    "Access-Control-Allow-Headers": "Content-Type, X-Dev-Seed-Token, X-Quorum-CSRF",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };
@@ -94,17 +98,36 @@ export default {
       return finishOAuth(request, env);
     }
     if (url.pathname === "/auth/logout" && request.method === "POST") {
+      if (!validateCsrf(request)) return corsJson(env, { error: "csrf" }, 403);
       return logoutResponse(request);
     }
     if (url.pathname === "/api/me" && request.method === "GET") {
       const session = await readSession(request, env);
       if (!session) return corsJson(env, {});
-      return corsJson(env, {
+      // Lazy CSRF backfill: sessions issued before the CSRF rollout don't
+      // have a quorum_csrf cookie. Mint one on the first /api/me hit so
+      // existing tabs upgrade transparently. Sessions issued by finishOAuth
+      // already have a cookie — keep the same value (no rotation per call,
+      // which would break multi-tab POSTs).
+      let csrfToken = getCsrfFromCookies(request);
+      const setCsrf = !csrfToken;
+      if (!csrfToken) csrfToken = mintCsrfToken();
+      const body = {
         login: session.login,
         avatar_url: session.avatar_url,
         can_vote: session.can_vote,
         can_edit: session.can_edit,
-      });
+        csrf_token: csrfToken,
+      };
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json; charset=utf-8",
+        ...corsHeaders(env),
+      };
+      const res = new Response(JSON.stringify(body), { status: 200, headers });
+      if (setCsrf) {
+        res.headers.append("Set-Cookie", csrfSetCookie(csrfToken, url.protocol === "https:"));
+      }
+      return res;
     }
 
     if (url.pathname === "/webhook" && request.method === "POST") {
@@ -183,6 +206,7 @@ export default {
     ) {
       const session = await readSession(request, env);
       if (!session) return corsJson(env, { error: "unauthorized" }, 401);
+      if (!validateCsrf(request)) return corsJson(env, { error: "csrf" }, 403);
       const uid = decodeURIComponent(
         url.pathname.slice("/api/ideas/".length, -"/vote".length),
       );
@@ -209,6 +233,7 @@ export default {
       const session = await readSession(request, env);
       if (!session) return corsJson(env, { error: "unauthorized" }, 401);
       if (!isEditor(session.login, env)) return corsJson(env, { error: "forbidden" }, 403);
+      if (!validateCsrf(request)) return corsJson(env, { error: "csrf" }, 403);
       const uid = decodeURIComponent(url.pathname.slice("/api/ideas/".length));
       const chat = resolveBoardChat(env, url);
       if (!chat) return corsJson(env, { error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);

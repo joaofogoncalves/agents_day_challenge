@@ -10,15 +10,27 @@
 //
 // `?chat=<telegram_chat_id>` in the page URL pins to a specific DO.
 // Without it, the Worker uses DEFAULT_BOARD_CHAT.
+//
+// CSRF: the Worker mints a `quorum_csrf` cookie at session creation and
+// echoes the same token in /api/me's body. We cache it in memory and send
+// it as `X-Quorum-CSRF` on every state-changing request. Double-submit:
+// cross-origin attackers can't read the cookie, so they can't forge the
+// header even if the browser ships the session cookie.
 
 export const usingMock = import.meta.env.VITE_USE_MOCK === '1';
 
 const FETCH_OPTS = { credentials: 'include' };
 
+let csrfToken = null;
+
 function chatParam() {
   if (typeof window === 'undefined') return '';
   const chat = new URLSearchParams(window.location.search).get('chat');
   return chat ? `?chat=${encodeURIComponent(chat)}` : '';
+}
+
+function csrfHeaders() {
+  return csrfToken ? { 'X-Quorum-CSRF': csrfToken } : {};
 }
 
 export async function fetchBoard() {
@@ -37,7 +49,9 @@ export async function fetchMe() {
   try {
     const r = await fetch('/api/me', FETCH_OPTS);
     if (!r.ok) return {};
-    return r.json();
+    const me = await r.json();
+    if (me && typeof me.csrf_token === 'string') csrfToken = me.csrf_token;
+    return me;
   } catch {
     return {};
   }
@@ -48,7 +62,7 @@ export async function patchIdea(uid, patch) {
   const r = await fetch(`/api/ideas/${encodeURIComponent(uid)}${chatParam()}`, {
     ...FETCH_OPTS,
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: JSON.stringify(patch),
   });
   if (r.status === 401) throw new Error('unauthorized — sign in first');
@@ -62,7 +76,7 @@ export async function voteIdea(uid) {
   const r = await fetch(`/api/ideas/${encodeURIComponent(uid)}/vote${chatParam()}`, {
     ...FETCH_OPTS,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
     body: '{}',
   });
   if (r.status === 401) throw new Error('unauthorized — sign in first');
@@ -72,5 +86,10 @@ export async function voteIdea(uid) {
 
 export async function logout() {
   if (usingMock) return;
-  await fetch('/auth/logout', { ...FETCH_OPTS, method: 'POST' });
+  await fetch('/auth/logout', {
+    ...FETCH_OPTS,
+    method: 'POST',
+    headers: { ...csrfHeaders() },
+  });
+  csrfToken = null;
 }

@@ -146,13 +146,22 @@ Reply format is plain text (Telegram MarkdownV2 escaping handled by `format.ts`)
 | `GET` | `/g/<token>` | Token in URL | Read-only HTML view (stretch) |
 | `GET` | `/healthz` | none | Liveness ping |
 | `GET` | `/auth/github/start` | none | Begin GitHub OAuth flow; sets state cookie, redirects |
-| `GET` | `/auth/github/callback` | OAuth state cookie | Finish OAuth; sets `quorum_session` cookie |
-| `POST` | `/auth/logout` | Session cookie | Clear session cookie |
-| `GET` | `/api/me` | optional session | Returns `{login, avatar_url, can_vote, can_edit}` or `{}` |
+| `GET` | `/auth/github/callback` | OAuth state cookie | Finish OAuth; sets `quorum_session` + `quorum_csrf` cookies |
+| `POST` | `/auth/logout` | Session cookie + **CSRF** | Clear session and CSRF cookies |
+| `GET` | `/api/me` | optional session | Returns `{login, avatar_url, can_vote, can_edit, csrf_token}` or `{}`. Lazily mints `quorum_csrf` if missing |
 | `GET` | `/api/board` | optional session (used to compute `voted_by_me`) | Board JSON for `web/` (see "Board API") |
-| `PATCH` | `/api/ideas/<uid>` | session **and** editor whitelist | Edit `name` / `long` from the board UI |
-| `POST` | `/api/ideas/<uid>/vote` | session (any GitHub user) | Idempotent toggle of one vote per `(idea, voter)` |
+| `PATCH` | `/api/ideas/<uid>` | session + editor whitelist + **CSRF** | Edit `name` / `long` from the board UI |
+| `POST` | `/api/ideas/<uid>/vote` | session (any GitHub user) + **CSRF** | Idempotent toggle of one vote per `(idea, voter)` |
 | `POST` | `/api/dev-seed` | `X-Dev-Seed-Token` matching `DEV_SEED_TOKEN` secret | Local-only seed; route 404s when secret is unset |
+
+**CSRF (double-submit cookie):** state-changing endpoints require both the
+`quorum_session` cookie *and* a matching `X-Quorum-CSRF` header that equals
+the `quorum_csrf` cookie value. The cookie is non-HttpOnly so the web client
+can read it; cross-origin attackers can't read it, so they can't forge the
+header even when the browser ships the session cookie. Token is a 64-char
+opaque hex string, minted at session creation (`finishOAuth`) and surfaced in
+`/api/me`'s response body for the client. Validation is constant-time
+compare. Mismatch → `403 {"error": "csrf"}`.
 
 ## Board API
 

@@ -13,6 +13,8 @@
 
 const SESSION_COOKIE = "quorum_session";
 const OAUTH_STATE_COOKIE = "quorum_oauth_state";
+const CSRF_COOKIE = "quorum_csrf";
+const CSRF_HEADER = "x-quorum-csrf";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const OAUTH_STATE_TTL_SECONDS = 60 * 10; // 10 minutes
 
@@ -60,11 +62,16 @@ export function parseCookies(header: string | null): Record<string, string> {
   return out;
 }
 
-export function setCookie(name: string, value: string, opts: { maxAge?: number; secure?: boolean } = {}): string {
+export function setCookie(
+  name: string,
+  value: string,
+  opts: { maxAge?: number; secure?: boolean; httpOnly?: boolean } = {},
+): string {
+  const httpOnly = opts.httpOnly ?? true;
   const parts = [
     `${name}=${encodeURIComponent(value)}`,
     "Path=/",
-    "HttpOnly",
+    ...(httpOnly ? ["HttpOnly"] : []),
     "SameSite=Lax",
   ];
   if (opts.maxAge != null) parts.push(`Max-Age=${opts.maxAge}`);
@@ -72,8 +79,8 @@ export function setCookie(name: string, value: string, opts: { maxAge?: number; 
   return parts.join("; ");
 }
 
-export function clearCookie(name: string, secure: boolean): string {
-  return setCookie(name, "", { maxAge: 0, secure });
+export function clearCookie(name: string, secure: boolean, opts: { httpOnly?: boolean } = {}): string {
+  return setCookie(name, "", { maxAge: 0, secure, httpOnly: opts.httpOnly });
 }
 
 // ── HMAC (WebCrypto) ─────────────────────────────────────────────
@@ -176,6 +183,55 @@ export function isEditor(login: string, env: Env): boolean {
 
 export function voterKey(login: string): string {
   return `gh:${login.toLowerCase()}`;
+}
+
+// ── CSRF (double-submit cookie) ──────────────────────────────────
+//
+// Defense beyond SameSite=Lax. The CSRF cookie is non-HttpOnly so the web
+// client can read it and echo it in `X-Quorum-CSRF` on POST/PATCH. A
+// cross-origin attacker can't read the cookie, so they can't construct a
+// matching header — the request fails even if the browser sends the
+// session cookie. Same value on cookie and header == valid.
+//
+// The token is opaque (32 random bytes hex), no server-side storage. Issued
+// at session creation; lazily backfilled on /api/me for sessions that
+// predate this rollout.
+
+export function mintCsrfToken(): string {
+  return bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
+}
+
+export function getCsrfFromCookies(request: Request): string | null {
+  const cookies = parseCookies(request.headers.get("Cookie"));
+  return cookies[CSRF_COOKIE] ?? null;
+}
+
+export function csrfSetCookie(token: string, secure: boolean): string {
+  // Non-HttpOnly so the web client can read it. Same lifetime as the session.
+  return setCookie(CSRF_COOKIE, token, { maxAge: SESSION_TTL_SECONDS, secure, httpOnly: false });
+}
+
+export function csrfClearCookie(secure: boolean): string {
+  return clearCookie(CSRF_COOKIE, secure, { httpOnly: false });
+}
+
+/**
+ * Validate a state-changing request. Returns true iff the `X-Quorum-CSRF`
+ * header is present, the `quorum_csrf` cookie is present, and they match
+ * exactly. Both must be non-empty.
+ */
+export function validateCsrf(request: Request): boolean {
+  const cookieToken = getCsrfFromCookies(request);
+  const headerToken = request.headers.get(CSRF_HEADER);
+  if (!cookieToken || !headerToken) return false;
+  // Length-equal guard before the byte compare. Cheap, prevents some
+  // size-leak shenanigans on malformed inputs.
+  if (cookieToken.length !== headerToken.length) return false;
+  let diff = 0;
+  for (let i = 0; i < cookieToken.length; i++) {
+    diff |= cookieToken.charCodeAt(i) ^ headerToken.charCodeAt(i);
+  }
+  return diff === 0;
 }
 
 // ── OAuth flow ───────────────────────────────────────────────────
@@ -297,6 +353,7 @@ export async function finishOAuth(request: Request, env: Env): Promise<Response>
   const next = safeNextPath(stateClaims.next ?? null) ?? "/";
   headers.append("Location", next);
   headers.append("Set-Cookie", setCookie(SESSION_COOKIE, session, { maxAge: SESSION_TTL_SECONDS, secure }));
+  headers.append("Set-Cookie", csrfSetCookie(mintCsrfToken(), secure));
   headers.append("Set-Cookie", clearCookie(OAUTH_STATE_COOKIE, secure));
   return new Response(null, { status: 302, headers });
 }
@@ -306,5 +363,6 @@ export function logoutResponse(request: Request): Response {
   const headers = new Headers();
   headers.append("Content-Type", "application/json; charset=utf-8");
   headers.append("Set-Cookie", clearCookie(SESSION_COOKIE, secure));
+  headers.append("Set-Cookie", csrfClearCookie(secure));
   return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
