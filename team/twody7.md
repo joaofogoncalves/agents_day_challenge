@@ -1,56 +1,71 @@
 # Twody7 — Integrations & content
 
-**Scope:** Workers AI integration, GitHub skills extraction, dogfooding, prompt engineering.
+**Scope:** Workers AI prompts, GitHub skills extraction, dogfooding, prompt quality.
 
-> ⚠ Stack unconfirmed at H+0 — confirm at standup. Assignments default to JS/TS; if you're stronger in Python, swap a section with João.
+## Status (H+4, 12:43)
 
-## Files I own
+The plumbing for everything in your scope is **already in `main`**. Files are not where the original plan put them — the integration is leaner now:
 
-- `src/ai.ts` — Workers AI client; default → fallback chain
-- `src/github.ts` — fetch user repos + langs, normalize
-- `src/skills.ts` — LLM-based skill extraction from `/me` text + GH data
-- `src/extract-event.ts` — scrape & extract event page → context fields
-- `prompts/` — prompt templates as text files (skill, scoring, plan, event)
-- `scripts/dogfood.ts` — seeder that pumps our chat history into a test bot
+| Original plan | Where it actually lives |
+|---|---|
+| `src/ai.ts` (Workers AI client + fallback) | `quorum/src/llm.ts` — `complete(env.AI, messages, opts)` with 70B→8B fallback wired |
+| `src/skills.ts` (skill extraction from /me + GH) | `quorum/src/telegram.ts → extractSkills()` (called from `/me` + `/gh`) |
+| `src/github.ts` (langs + recent repos) | `quorum/src/telegram.ts → fetchGithubSummary()` |
+| `src/extract-event.ts` (event page → context) | `quorum/src/telegram.ts → extractEvent()` (called from `/event <url>`) |
+| `prompts/*` | `prompts/` exists at repo root (you already pushed `41851d9`) |
+| `scripts/dogfood.ts` | not yet — see "what's next" |
 
-## Interfaces I produce
+The wrappers are all functional — what they need from you is **prompt quality**, which is the bottleneck for whether the demo's `/constraint` moment actually reshuffles ideas (vs. flat 0.5/0.5 scores).
+
+## What's done ✅
+
+- Workers AI wrapper with primary→fallback model chain (`quorum/src/llm.ts`)
+- JSON-output helper `parseJson<T>(raw)` strips ``` fences, safe-parses
+- Skill extraction handler (`extractSkills`) wired into `/me` and `/gh`
+- GitHub profile fetch (anonymous; `GITHUB_TOKEN` optional for higher rate)
+- Event page extraction wired to `/event <url>` → `setContext()` → recompute on all live ideas
+- Validation scoring prompt in `agent.validateIdea()` (placeholder — your refinement is what makes it useful)
+- Plan generation prompt in `agent.planFor()` (placeholder)
+- Prompt templates in `prompts/` (your commit `41851d9`)
+
+## What's next
+
+In rough priority order:
+
+1. **Validation scoring prompt — the demo bottleneck.** In `quorum/src/agent.ts → validateIdea()` (look for `messages: ChatMessage[]`). Right now it's a generic "score this idea" prompt that tends to produce flat numbers. Goals:
+   - Same idea + same context scored twice → within ±0.05 on `team_fit` (definition of "done")
+   - `/constraint we lost a backend dev` should _visibly_ reshuffle ideas. If Llama returns ~0.5 for everything, the demo moment dies silently.
+   - The system prompt must include the team's skills aggregate and the chat's context (deadline, constraints) explicitly. Engineer reasoning steps before the JSON output.
+   - Output JSON schema (locked — don't change without SPEC update): `{"team_fit": 0..1, "resource_fit": 0..1, "reason": string ≤200chars}`
+2. **Dogfood with real ideas.** H+4 is lunch + dogfood per the original plan. Use ideas from your team's actual chat history. Translate from PT to English first if needed. Look for:
+   - Prompts that produce parse failures (parseJson returns null → score defaults to 0.5/0.5 = boring board)
+   - Prompts where Llama 70B times out and falls back to 8B (silently logged)
+   - Skill extractions that return `[]` or wrong skills
+3. **Skill extraction prompt refinement.** `quorum/src/telegram.ts → extractSkills()`. Goal: `/me 8 years backend python/postgres` → `["python", "postgres", "backend"]` consistently. Currently a placeholder.
+4. **Plan generation prompt refinement.** `agent.planFor()`. Should reference at least one team member by skill ("Twody7 owns Workers AI integration → assign milestone 2"). Markdown sections: `## Milestones / ## Risks / ## Suggested owners`.
+5. **Cost monitoring.** Add basic logging — Neurons used per call, fallback rate. If we're trending toward the 10K/day cap, swap to AI Gateway + Gemini 2.5 Flash (the documented escape hatch in PLAN.md).
+6. **Event-page extraction.** Less critical — only used for `/event <url>` which is a side flow. Refine if time permits.
+
+## ⚠️ Note: bot is currently broken in groups
+
+Every command throws `raw.trim is not a function` in the demo group right now. João is fixing it — you can't dogfood until it's resolved. While you wait, you can iterate prompts locally by editing `quorum/src/agent.ts` / `quorum/src/telegram.ts`, running `npm run check`, and grep'ing for the prompt strings to refine without leaving the editor.
+
+## Interfaces I produce / consume
+
+The plumbing in `quorum/src/llm.ts` exposes:
 
 ```ts
-ai.complete(messages, opts?): Promise<string>
-  // default: llama-3.3-70b-instruct-fp8-fast
-  // fallback chain: llama-3.1-8b-instruct-fast → claude (via João's claude.ts)
-  // returns raw string; caller is responsible for JSON parse + validation
-
-skills.extract(meText, ghProfile?): Promise<string[]>
-  // JSON-validated, retries once on parse failure
-
-github.profile(username): Promise<{ langs: string[], recentRepos: string[], pattern: string }>
-
-extractEvent.fromUrl(url): Promise<EventContext>
-  // returns the shape that goes into the `context` table per SPEC
+complete(ai: Ai, messages: ChatMessage[], opts?: CompleteOpts): Promise<string>
+parseJson<T>(raw: string): T | null
 ```
 
-## Interfaces I consume
+Your job is the *content* of `messages` — the system + user prompts. Save iterations in `prompts/` so the deck can show them.
 
-- `QuorumAgent.setMember`, `setContext` from João — to persist extracted data
-- `claude.complete` from João — fallback when Workers AI fails or quality dips
+## Definition of done
 
-## Hour-by-hour
-
-- **H+0 (8:30):** standup, confirm stack, secrets check (Workers AI binding works locally?). **Push** any setup commits.
-- **H+1 (9:30):** `ai.ts` skeleton calling Llama 3.3, fallback path tested with deliberately-failed primary
-- **H+2 (10:30):** prompt template for `/idea` echo summarization (sanity check). Validate JSON shape contract. **Push.**
-- **H+3 (11:30):** `extract-event.ts` — scrape event url, extract challenges/deadline/prize. **Push.**
-- **H+4 (12:30):** lunch + dogfood seed list (use ideas from our PT chat — translate to English first)
-- **H+5 (14:30):** `github.ts` + `skills.extract` pipeline. **Push.**
-- **H+6 (15:30):** **pair with João** on validation scoring prompt — this is the heart of the app. Stable scores under same input matter most.
-- **H+7 (16:30):** prompt iteration. `/plan` generation prompt. Cost monitoring (Neurons used / fallback rate). **Push.**
-- **H+8 (17:30):** dogfood end-to-end run, surface any prompt drift; prep prompts/ folder for the deck
-- **H+9 (18:30):** ready
-
-## Definition of done per milestone
-
-- **H+1:** `ai.complete` returns coherent response; fallback path tested by killing the default
-- **H+5:** `/me` text "8 years backend python/postgres" produces a sensible skill list (verified by 2 of us)
-- **H+6:** same idea + same context scored twice produces stable result (within ±0.05 on team_fit)
-- **H+7:** `/plan` output for a complex idea has all 3 sections (Milestones / Risks / Owners) and references at least 1 team member by skill
+- ⚠️ **Open**: validation scoring is stable (±0.05 on `team_fit` for same input)
+- ⚠️ **Open**: dogfood run with team's real ideas surfaces no parse failures
+- ⚠️ **Open**: `/constraint` visibly reshuffles the board in the demo group
+- ✅ `complete()` returns coherent response on primary; fallback path verified
+- ✅ Skill extraction handler exists and runs (quality TBD)
+- ✅ Event extraction handler exists and runs (quality TBD)
