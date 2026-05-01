@@ -14,6 +14,14 @@
  */
 
 import { QuorumAgent } from "./agent";
+import {
+  finishOAuth,
+  isEditor,
+  logoutResponse,
+  readSession,
+  startOAuth,
+  voterKey,
+} from "./auth";
 
 export { QuorumAgent };
 
@@ -68,6 +76,27 @@ export default {
       return new Response("ok", { status: 200, headers: CORS_HEADERS });
     }
 
+    // ── Auth (GitHub OAuth) ─────────────────────────────────────────
+    if (url.pathname === "/auth/github/start" && request.method === "GET") {
+      return startOAuth(request, env);
+    }
+    if (url.pathname === "/auth/github/callback" && request.method === "GET") {
+      return finishOAuth(request, env);
+    }
+    if (url.pathname === "/auth/logout" && request.method === "POST") {
+      return logoutResponse(request);
+    }
+    if (url.pathname === "/api/me" && request.method === "GET") {
+      const session = await readSession(request, env);
+      if (!session) return corsJson({});
+      return corsJson({
+        login: session.login,
+        avatar_url: session.avatar_url,
+        can_vote: session.can_vote,
+        can_edit: session.can_edit,
+      });
+    }
+
     if (url.pathname === "/webhook" && request.method === "POST") {
       const got = request.headers.get("x-telegram-bot-api-secret-token");
       if (got !== env.TELEGRAM_WEBHOOK_SECRET) {
@@ -101,15 +130,68 @@ export default {
 
     // ── Board API (web/) ─────────────────────────────────────────────
 
-    if (url.pathname === "/api/board" && request.method === "GET") {
+    // Dev-only seed (no-op if data exists). Forwarded to the resolved chat DO.
+    if (url.pathname === "/api/dev-seed" && request.method === "POST") {
       const chat = resolveBoardChat(env, url);
       if (!chat) return corsJson({ error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
       const id = env.QuorumAgent.idFromName(chat);
       const stub = env.QuorumAgent.get(id);
-      return stub.fetch(new Request(new URL("/board", request.url).toString()));
+      return stub.fetch(
+        new Request(new URL("/board/dev-seed", request.url).toString(), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: await request.text(),
+        }),
+      );
+    }
+
+    if (url.pathname === "/api/board" && request.method === "GET") {
+      const chat = resolveBoardChat(env, url);
+      if (!chat) return corsJson({ error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
+      const session = await readSession(request, env);
+      const id = env.QuorumAgent.idFromName(chat);
+      const stub = env.QuorumAgent.get(id);
+      const headers: Record<string, string> = {};
+      if (session) headers["x-quorum-voter"] = voterKey(session.login);
+      return stub.fetch(
+        new Request(new URL("/board", request.url).toString(), { headers }),
+      );
+    }
+
+    // POST /api/ideas/<uid>/vote — toggle vote (auth required, any GitHub user).
+    if (
+      url.pathname.startsWith("/api/ideas/") &&
+      url.pathname.endsWith("/vote") &&
+      request.method === "POST"
+    ) {
+      const session = await readSession(request, env);
+      if (!session) return corsJson({ error: "unauthorized" }, 401);
+      const uid = decodeURIComponent(
+        url.pathname.slice("/api/ideas/".length, -"/vote".length),
+      );
+      const chat = resolveBoardChat(env, url);
+      if (!chat) return corsJson({ error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
+      const id = env.QuorumAgent.idFromName(chat);
+      const stub = env.QuorumAgent.get(id);
+      return stub.fetch(
+        new Request(
+          new URL(`/board/ideas/${encodeURIComponent(uid)}/vote`, request.url).toString(),
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-quorum-voter": voterKey(session.login),
+              "x-quorum-login": session.login,
+            },
+          },
+        ),
+      );
     }
 
     if (url.pathname.startsWith("/api/ideas/") && request.method === "PATCH") {
+      const session = await readSession(request, env);
+      if (!session) return corsJson({ error: "unauthorized" }, 401);
+      if (!isEditor(session.login, env)) return corsJson({ error: "forbidden" }, 403);
       const uid = decodeURIComponent(url.pathname.slice("/api/ideas/".length));
       const chat = resolveBoardChat(env, url);
       if (!chat) return corsJson({ error: "no chat — set DEFAULT_BOARD_CHAT or pass ?chat=<id>" }, 400);
@@ -118,7 +200,12 @@ export default {
       return stub.fetch(
         new Request(new URL(`/board/ideas/${encodeURIComponent(uid)}`, request.url).toString(), {
           method: "PATCH",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            "x-quorum-voter": voterKey(session.login),
+            "x-quorum-login": session.login,
+            "x-quorum-editor": "1",
+          },
           body: await request.text(),
         }),
       );

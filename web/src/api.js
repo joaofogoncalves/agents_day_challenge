@@ -1,13 +1,19 @@
-// Tiny API client for the Quorum board.
-// Set VITE_API_BASE in .env (e.g. https://quorum.joao-f-o-goncalves.workers.dev).
-// If unset, falls back to /mock.json so dev still works without a backend.
+// Quorum board API client.
 //
-// The chat is read from `?chat=<telegram_chat_id>` in the page URL — one DO
-// per Telegram chat. Without it the API uses its DEFAULT_BOARD_CHAT var.
+// Same-origin assumption: in dev, Vite proxies /api and /auth to the
+// Wrangler Worker (see vite.config.js); in prod the Worker serves the
+// built web/dist directly. Either way, paths here are relative — that's
+// what makes HttpOnly session cookies ride along without CORS gymnastics.
+//
+// Mock mode (VITE_USE_MOCK=1) bypasses the network and reads /mock.json
+// for layout work. Voting and editing are no-ops in mock mode.
+//
+// `?chat=<telegram_chat_id>` in the page URL pins to a specific DO.
+// Without it, the Worker uses DEFAULT_BOARD_CHAT.
 
-const BASE = import.meta.env.VITE_API_BASE?.replace(/\/$/, '') || '';
+export const usingMock = import.meta.env.VITE_USE_MOCK === '1';
 
-export const usingMock = !BASE;
+const FETCH_OPTS = { credentials: 'include' };
 
 function chatParam() {
   if (typeof window === 'undefined') return '';
@@ -16,23 +22,55 @@ function chatParam() {
 }
 
 export async function fetchBoard() {
-  if (!BASE) {
+  if (usingMock) {
     const r = await fetch('/mock.json');
     if (!r.ok) throw new Error(`mock fetch failed: ${r.status}`);
     return r.json();
   }
-  const r = await fetch(`${BASE}/api/board${chatParam()}`);
+  const r = await fetch(`/api/board${chatParam()}`, FETCH_OPTS);
   if (!r.ok) throw new Error(`GET /api/board failed: ${r.status}`);
   return r.json();
 }
 
+export async function fetchMe() {
+  if (usingMock) return {};
+  try {
+    const r = await fetch('/api/me', FETCH_OPTS);
+    if (!r.ok) return {};
+    return r.json();
+  } catch {
+    return {};
+  }
+}
+
 export async function patchIdea(uid, patch) {
-  if (!BASE) return { idea: null }; // mock mode: no-op
-  const r = await fetch(`${BASE}/api/ideas/${encodeURIComponent(uid)}${chatParam()}`, {
+  if (usingMock) return { idea: null };
+  const r = await fetch(`/api/ideas/${encodeURIComponent(uid)}${chatParam()}`, {
+    ...FETCH_OPTS,
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
   });
+  if (r.status === 401) throw new Error('unauthorized — sign in first');
+  if (r.status === 403) throw new Error('forbidden — editor whitelist required');
   if (!r.ok) throw new Error(`PATCH /api/ideas/${uid} failed: ${r.status}`);
   return r.json();
+}
+
+export async function voteIdea(uid) {
+  if (usingMock) return { votes: 0, voted: false };
+  const r = await fetch(`/api/ideas/${encodeURIComponent(uid)}/vote${chatParam()}`, {
+    ...FETCH_OPTS,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  if (r.status === 401) throw new Error('unauthorized — sign in first');
+  if (!r.ok) throw new Error(`POST vote failed: ${r.status}`);
+  return r.json();
+}
+
+export async function logout() {
+  if (usingMock) return;
+  await fetch('/auth/logout', { ...FETCH_OPTS, method: 'POST' });
 }

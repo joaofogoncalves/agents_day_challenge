@@ -13,6 +13,14 @@ declare global {
     DEFAULT_BOARD_CHAT?: string;
     /** Public origin of this Worker. Used by /start to build the per-chat board URL. */
     PUBLIC_BASE_URL?: string;
+    /** Comma-separated GitHub logins permitted to edit ideas. Lowercase, exact match. */
+    EDITOR_WHITELIST?: string;
+    /** GitHub OAuth App client id. */
+    GITHUB_OAUTH_CLIENT_ID?: string;
+    /** GitHub OAuth App client secret. */
+    GITHUB_OAUTH_CLIENT_SECRET?: string;
+    /** 32-byte hex string. HMAC key for session cookies. */
+    SESSION_SIGNING_KEY?: string;
   }
 }
 

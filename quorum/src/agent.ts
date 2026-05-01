@@ -73,14 +73,21 @@ export class QuorumAgent extends Agent<Env> {
     }
 
     // Board API — proxied here from src/index.ts after chat-id resolution.
+    // The Worker layer authenticates and forwards the caller's identity via
+    // these headers. The DO trusts them because nothing reaches /board* except
+    // through the Worker.
+    const callerVoterKey = request.headers.get("x-quorum-voter") || null;
+    const callerEditor = request.headers.get("x-quorum-editor") === "1";
+
     if (url.pathname === "/board" && request.method === "GET") {
-      return jsonResponse({ ideas: this.getBoard() });
+      return jsonResponse({ ideas: this.getBoard(callerVoterKey) });
     }
 
     if (url.pathname.startsWith("/board/ideas/") && request.method === "PATCH") {
       const uid = decodeURIComponent(url.pathname.slice("/board/ideas/".length));
       const id = idFromUid(uid);
       if (id == null) return jsonResponse({ error: "invalid uid" }, 400);
+      if (!callerEditor) return jsonResponse({ error: "forbidden" }, 403);
       let body: { name?: unknown; long?: unknown };
       try {
         body = await request.json();
@@ -93,9 +100,35 @@ export class QuorumAgent extends Agent<Env> {
       if (Object.keys(patch).length === 0) {
         return jsonResponse({ error: "nothing to update" }, 400);
       }
-      const updated = this.updateIdea(id, patch);
+      const editor = request.headers.get("x-quorum-login") || "unknown";
+      const updated = this.updateIdea(id, patch, editor, callerVoterKey);
       if (!updated) return jsonResponse({ error: "not found" }, 404);
       return jsonResponse({ idea: updated });
+    }
+
+    // Dev-only one-shot seed. No-ops if any ideas already exist. Triggered from
+    // src/index.ts /api/dev-seed → DO /board/dev-seed. Useful for local smoke
+    // tests; safe to leave enabled because of the empty-table guard.
+    if (url.pathname === "/board/dev-seed" && request.method === "POST") {
+      let body: { ideas?: Array<Record<string, unknown>> };
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: "invalid json" }, 400);
+      }
+      const inserted = this.devSeed(body.ideas ?? []);
+      return jsonResponse({ inserted });
+    }
+
+    if (url.pathname.startsWith("/board/ideas/") && url.pathname.endsWith("/vote") && request.method === "POST") {
+      const slice = url.pathname.slice("/board/ideas/".length, -"/vote".length);
+      const uid = decodeURIComponent(slice);
+      const id = idFromUid(uid);
+      if (id == null) return jsonResponse({ error: "invalid uid" }, 400);
+      if (!callerVoterKey) return jsonResponse({ error: "unauthorized" }, 401);
+      const result = this.toggleVote(id, callerVoterKey);
+      if (!result) return jsonResponse({ error: "not found" }, 404);
+      return jsonResponse(result);
     }
 
     return new Response("not found", { status: 404 });
@@ -126,26 +159,41 @@ export class QuorumAgent extends Agent<Env> {
 
   // ── Board API (web/) ─────────────────────────────────────────────
 
-  /** Read-only projection of live ideas for the board UI. */
-  getBoard(): BoardIdea[] {
+  /** Read-only projection of live ideas for the board UI.
+   *  voterKey (e.g. "gh:rui") drives `voted_by_me`. Pass null for anon. */
+  getBoard(voterKey: string | null = null): BoardIdea[] {
     const rows = this.sql<Idea>`
       SELECT * FROM ideas
       WHERE status IN ('ideating','validating','planning')
       ORDER BY id ASC
     `;
     void BOARD_STATUSES;
+    const myVotes = voterKey
+      ? new Set(
+          this.sql<{ idea_id: number }>`
+            SELECT idea_id FROM idea_votes WHERE voter_key = ${voterKey}
+          `.map((r) => r.idea_id),
+        )
+      : new Set<number>();
     return rows
-      .map((row) => this.toBoardIdea(row))
+      .map((row) => this.toBoardIdea(row, myVotes.has(row.id)))
       .filter((b): b is BoardIdea => b !== null);
   }
 
   /** PATCH /api/ideas/:uid — only name and long are user-writable per FRONTEND.md. */
-  updateIdea(id: number, patch: { name?: string; long?: string }): BoardIdea | null {
+  updateIdea(
+    id: number,
+    patch: { name?: string; long?: string },
+    editor = "unknown",
+    voterKey: string | null = null,
+  ): BoardIdea | null {
     const existing = this.sql<Idea>`SELECT * FROM ideas WHERE id = ${id}`;
     if (existing.length === 0) return null;
     const cleanedName = patch.name?.trim().slice(0, 200);
     const cleanedLong = patch.long?.slice(0, 5000);
-    if (cleanedName == null && cleanedLong == null) return this.toBoardIdea(existing[0]!);
+    if (cleanedName == null && cleanedLong == null) {
+      return this.toBoardIdea(existing[0]!, this.hasVote(id, voterKey));
+    }
     if (cleanedName != null && cleanedLong != null) {
       this.sql`UPDATE ideas SET name = ${cleanedName}, long = ${cleanedLong} WHERE id = ${id}`;
     } else if (cleanedName != null) {
@@ -153,12 +201,79 @@ export class QuorumAgent extends Agent<Env> {
     } else if (cleanedLong != null) {
       this.sql`UPDATE ideas SET long = ${cleanedLong} WHERE id = ${id}`;
     }
-    this.appendEvent(id, "idea_added", { edited: patch });
+    this.appendEvent(id, "idea_edited", { editor, patch });
     const after = this.sql<Idea>`SELECT * FROM ideas WHERE id = ${id}`;
-    return this.toBoardIdea(after[0]!);
+    return this.toBoardIdea(after[0]!, this.hasVote(id, voterKey));
   }
 
-  private toBoardIdea(row: Idea): BoardIdea | null {
+  /** One-shot seed for local smoke testing. No-ops if ideas already exist. */
+  devSeed(items: Array<Record<string, unknown>>): number {
+    const existing = this.sql<{ n: number }>`SELECT COUNT(*) as n FROM ideas`;
+    if ((existing[0]?.n ?? 0) > 0) return 0;
+    const stageToStatus: Record<string, Status> = {
+      bucket: "ideating",
+      candidates: "validating",
+      selected: "planning",
+    };
+    const now = Date.now();
+    let count = 0;
+    for (const it of items) {
+      const name = String(it.name ?? "");
+      const brief = String(it.brief ?? "");
+      const long = String(it.long ?? "");
+      const stage = String(it.stage ?? "bucket");
+      const status = stageToStatus[stage] ?? "ideating";
+      const score = typeof it.score === "number" ? Math.max(0, Math.min(10, it.score)) : 5;
+      const team = score / 10;
+      const resource = score / 10;
+      const hours = typeof it.hours === "number" ? it.hours : null;
+      this.sql`
+        INSERT INTO ideas (author_id, text, name, brief, long, status, score_team, score_resource, score_market, hours, created_at)
+        VALUES ('seed', ${name}, ${name}, ${brief}, ${long}, ${status}, ${team}, ${resource}, 0.5, ${hours}, ${now + count})
+      `;
+      count++;
+    }
+    return count;
+  }
+
+  /** Toggle a per-user vote on an idea. Returns the new state, or null if idea missing. */
+  toggleVote(id: number, voterKey: string): { votes: number; voted: boolean } | null {
+    const exists = this.sql<{ id: number }>`SELECT id FROM ideas WHERE id = ${id}`;
+    if (exists.length === 0) return null;
+    const had = this.sql<{ idea_id: number }>`
+      SELECT idea_id FROM idea_votes WHERE idea_id = ${id} AND voter_key = ${voterKey}
+    `;
+    const now = Date.now();
+    if (had.length > 0) {
+      this.sql`DELETE FROM idea_votes WHERE idea_id = ${id} AND voter_key = ${voterKey}`;
+      this.sql`UPDATE ideas SET votes = MAX(0, COALESCE(votes, 0) - 1) WHERE id = ${id}`;
+    } else {
+      this.sql`
+        INSERT INTO idea_votes (idea_id, voter_key, created_at)
+        VALUES (${id}, ${voterKey}, ${now})
+      `;
+      this.sql`UPDATE ideas SET votes = COALESCE(votes, 0) + 1 WHERE id = ${id}`;
+    }
+    const after = this.sql<{ votes: number }>`SELECT votes FROM ideas WHERE id = ${id}`;
+    const votes = after[0]?.votes ?? 0;
+    const voted = had.length === 0;
+    this.appendEvent(id, "idea_voted", {
+      voter_key: voterKey,
+      direction: voted ? "up" : "undo",
+      new_total: votes,
+    });
+    return { votes, voted };
+  }
+
+  private hasVote(ideaId: number, voterKey: string | null): boolean {
+    if (!voterKey) return false;
+    const rows = this.sql<{ idea_id: number }>`
+      SELECT idea_id FROM idea_votes WHERE idea_id = ${ideaId} AND voter_key = ${voterKey}
+    `;
+    return rows.length > 0;
+  }
+
+  private toBoardIdea(row: Idea, votedByMe: boolean): BoardIdea | null {
     const stage = STATUS_TO_STAGE[row.status];
     if (!stage) return null;
     const score = composite({ team: row.score_team, resource: row.score_resource });
@@ -170,6 +285,8 @@ export class QuorumAgent extends Agent<Env> {
       score: Math.max(0, Math.min(10, Math.round(score * 10))),
       hours: row.hours,
       stage,
+      votes: row.votes ?? 0,
+      voted_by_me: votedByMe,
     };
   }
 

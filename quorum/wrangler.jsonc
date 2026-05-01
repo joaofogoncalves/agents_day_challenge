@@ -20,12 +20,16 @@
   "ai": { "binding": "AI", "remote": true },
   "vars": {
     "DEFAULT_BOARD_CHAT": "-5120669057",
-    "PUBLIC_BASE_URL": "https://quorum.joao-f-o-goncalves.workers.dev"
+    "PUBLIC_BASE_URL": "https://quorum.joao-f-o-goncalves.workers.dev",
+    // Comma-separated GitHub logins (lowercase). Members of this list can
+    // edit ideas via the board UI. Anyone authed (in or out of list) can vote.
+    // Whitespace around commas is stripped at compare time.
+    "EDITOR_WHITELIST": "molefas,muffles,joao-f-o-goncalves,twody7"
   },
   "assets": {
     "directory": "../web/dist",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/webhook", "/healthz", "/api/*", "/g/*"]
+    "run_worker_first": ["/webhook", "/healthz", "/api/*", "/auth/*", "/g/*"]
   },
   "durable_objects": {
     "bindings": [

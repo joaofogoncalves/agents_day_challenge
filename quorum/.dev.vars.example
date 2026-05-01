@@ -1,0 +1,17 @@
+# Copy to quorum/.dev.vars (gitignored) and fill in. `wrangler dev` reads this.
+
+# ── Telegram (existing) ───────────────────────────────────────────
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_WEBHOOK_SECRET=
+
+# ── GitHub OAuth (new — feat/social-ranking-and-auth) ─────────────
+# Register a "Quorum (local)" GitHub OAuth App at https://github.com/settings/developers
+# Homepage URL:        http://localhost:5173
+# Callback URL:        http://localhost:5173/auth/github/callback
+# (Vite dev-proxies /auth to the Worker, so the browser always talks to :5173)
+GITHUB_OAUTH_CLIENT_ID=
+GITHUB_OAUTH_CLIENT_SECRET=
+
+# Random 32-byte hex used to HMAC the session cookie. Generate with:
+#   openssl rand -hex 32
+SESSION_SIGNING_KEY=
