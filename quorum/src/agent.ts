@@ -29,7 +29,7 @@ import {
 } from "./schema";
 import { composite, MARKET_PLACEHOLDER } from "./scoring";
 import { reanimate as runReanimate, type ReanimateResult } from "./backflow";
-import { complete, loadPrompt, type ChatMessage } from "./llm";
+import { complete, loadPrompt, parseJson, type ChatMessage } from "./llm";
 import scoringPrompt from "../prompts/scoring.md";
 import planPrompt from "../prompts/plan.md";
 
@@ -408,8 +408,10 @@ export class QuorumAgent extends Agent<Env> {
       ? constraintsArr.map((c) => `- ${c}`).join("\n")
       : "(none)";
 
+    const ideaDescription = idea.long ?? idea.brief ?? idea.text;
+
     const { system, user } = loadPrompt(scoringPrompt, {
-      idea: idea.text,
+      idea: ideaDescription,
       event: ctx["event_url"] ?? "(none)",
       deadline: ctx["deadline"] ?? "(none)",
       budget: ctx["budget"] ?? "(none)",
@@ -421,8 +423,17 @@ export class QuorumAgent extends Agent<Env> {
       { role: "user", content: user },
     ];
 
-    const raw = await complete(this.env.AI, messages, { json: true, maxTokens: 256 });
-    const parsed = safeJson<{ team_fit: number; resource_fit: number; reason: string }>(raw);
+    const raw = await complete(this.env.AI, messages, {
+      json: true,
+      maxTokens: 512,
+      temperature: 0,
+    });
+    const parsed = parseJson<{
+      required_skills?: string[];
+      team_fit: number;
+      resource_fit: number;
+      reason: string;
+    }>(raw);
     const team = parsed?.team_fit ?? 0.5;
     const resource = parsed?.resource_fit ?? 0.5;
     const reason = parsed?.reason ?? "fallback: parse error";
@@ -438,7 +449,13 @@ export class QuorumAgent extends Agent<Env> {
         last_reason = ${reason}
       WHERE id = ${id}
     `;
-    this.appendEvent(id, "scored", { team, resource, market, reason });
+    this.appendEvent(id, "scored", {
+      team,
+      resource,
+      market,
+      reason,
+      required_skills: parsed?.required_skills ?? [],
+    });
     return { team, resource, market, reason };
   }
 

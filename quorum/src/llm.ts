@@ -150,7 +150,12 @@ export function loadPrompt(
   return { system, user };
 }
 
-/** Safe JSON parse for LLM output. Strips ```json fences if present. */
+/**
+ * Safe JSON parse for LLM output.
+ * 1. Strips leading/trailing ```json fences (common Llama output).
+ * 2. Falls back to extracting the first `{…}` block in case the model
+ *    prepended a stray word or whitespace before the JSON.
+ */
 export function parseJson<T>(raw: string): T | null {
   const cleaned = raw
     .trim()
@@ -160,6 +165,15 @@ export function parseJson<T>(raw: string): T | null {
   try {
     return JSON.parse(cleaned) as T;
   } catch {
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start !== -1 && end > start) {
+      try {
+        return JSON.parse(cleaned.slice(start, end + 1)) as T;
+      } catch {
+        return null;
+      }
+    }
     return null;
   }
 }
