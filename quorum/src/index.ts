@@ -130,6 +130,55 @@ export default {
       return res;
     }
 
+    // ── WebSocket upgrade for the live board ───────────────────────
+    if (url.pathname === "/api/socket" && request.headers.get("Upgrade") === "websocket") {
+      // Origin check. Browsers don't enforce CORS on WS upgrades, so
+      // we enforce it server-side. PUBLIC_BASE_URL is canonical in
+      // prod; localhost:5173 / 127.0.0.1:5173 are allowed in dev.
+      const origin = request.headers.get("Origin");
+      const allowed = new Set<string>();
+      if (env.PUBLIC_BASE_URL) allowed.add(env.PUBLIC_BASE_URL.replace(/\/$/, ""));
+      allowed.add("http://localhost:5173");
+      allowed.add("http://127.0.0.1:5173");
+      if (!origin || !allowed.has(origin)) {
+        return new Response("forbidden origin", { status: 403 });
+      }
+
+      const session = await readSession(request, env);
+      const chat = resolveBoardChat(env, url);
+      if (!chat) return new Response("no chat", { status: 400 });
+
+      // Identity. Authed = gh:<login>; otherwise mint a per-tab anon key.
+      let voter = session ? voterKey(session.login) : "";
+      const login: string | null = session?.login ?? null;
+      const avatar: string | null = session?.avatar_url ?? null;
+      if (!voter) {
+        const bytes = new Uint8Array(12);
+        crypto.getRandomValues(bytes);
+        const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+        voter = `anon:${hex}`;
+      }
+
+      const id = env.QuorumAgent.idFromName(chat);
+      const stub = env.QuorumAgent.get(id);
+      const headers = new Headers(request.headers);
+      headers.set("x-quorum-voter", voter);
+      headers.set("x-quorum-login", login ?? "");
+      headers.set("x-quorum-avatar", avatar ?? "");
+      if (session && isEditor(session.login, env)) {
+        headers.set("x-quorum-editor", "1");
+      } else {
+        headers.delete("x-quorum-editor");
+      }
+
+      return stub.fetch(
+        new Request(new URL("/socket", request.url).toString(), {
+          method: "GET",
+          headers,
+        }),
+      );
+    }
+
     if (url.pathname === "/webhook" && request.method === "POST") {
       const got = request.headers.get("x-telegram-bot-api-secret-token");
       if (got !== env.TELEGRAM_WEBHOOK_SECRET) {
