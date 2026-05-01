@@ -749,6 +749,19 @@ export class QuorumAgent extends Agent<Env> {
     skills: string[];
     availability: string | null;
   }> {
+    // Self-heal: drop any `gh:<login>` row whose person is already
+    // represented by a Telegram member who linked the same GitHub account
+    // via /gh. Cleans up duplicates left by the prior code path that
+    // didn't dedupe on /gh-after-OAuth.
+    this.sql`
+      DELETE FROM members
+      WHERE user_id LIKE 'gh:%'
+      AND EXISTS (
+        SELECT 1 FROM members m2
+        WHERE m2.user_id NOT LIKE 'gh:%'
+        AND LOWER(m2.gh_user) = SUBSTR(members.user_id, 4)
+      )
+    `;
     const rows = this.sql<Member>`
       SELECT * FROM members ORDER BY joined_at ASC
     `;
@@ -798,6 +811,14 @@ export class QuorumAgent extends Agent<Env> {
           availability = ${patch.availability ?? prev.availability}
         WHERE user_id = ${userId}
       `;
+    }
+    // Dedup: if a Telegram member just linked a GitHub account via /gh, drop
+    // any pre-existing `gh:<login>` row that GitHub OAuth sign-in may have
+    // created for the same person. Votes are keyed by `gh:<login>` directly
+    // (see voterKey() / voterKeyForTelegram()) so they survive the delete.
+    if (patch.gh_user && !userId.startsWith("gh:")) {
+      const orphan = `gh:${patch.gh_user.toLowerCase()}`;
+      this.sql`DELETE FROM members WHERE user_id = ${orphan}`;
     }
     return this.sql<Member>`SELECT * FROM members WHERE user_id = ${userId}`[0]!;
   }
