@@ -29,6 +29,24 @@ import {
 
 export { QuorumAgent };
 
+// Anon WS upgrade throttle: <ip>::<chat> -> upgrade timestamps in last 60s.
+// >5 entries = 429. Module-scope state is fine — collisions only happen
+// when one IP genuinely floods, which is what we're guarding against.
+const ANON_UPGRADE_LOG = new Map<string, number[]>();
+function checkAnonRate(ip: string, chat: string): boolean {
+  const key = `${ip}::${chat}`;
+  const now = Date.now();
+  const cutoff = now - 60_000;
+  const entries = (ANON_UPGRADE_LOG.get(key) ?? []).filter((t) => t > cutoff);
+  if (entries.length >= 5) {
+    ANON_UPGRADE_LOG.set(key, entries);
+    return false;
+  }
+  entries.push(now);
+  ANON_UPGRADE_LOG.set(key, entries);
+  return true;
+}
+
 type TelegramUpdate = {
   message?: { chat?: { id?: number } };
   edited_message?: { chat?: { id?: number } };
@@ -147,6 +165,13 @@ export default {
       const session = await readSession(request, env);
       const chat = resolveBoardChat(env, url);
       if (!chat) return new Response("no chat", { status: 400 });
+
+      if (!session) {
+        const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+        if (!checkAnonRate(ip, chat)) {
+          return new Response("rate limit", { status: 429 });
+        }
+      }
 
       // Identity. Authed = gh:<login>; otherwise mint a per-tab anon key.
       let voter = session ? voterKey(session.login) : "";
