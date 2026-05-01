@@ -33,6 +33,8 @@ import { complete, loadPrompt, parseJson, type ChatMessage } from "./llm";
 import { parseDeadline, formatDeadline } from "./deadline";
 import scoringPrompt from "../prompts/scoring.md";
 import planPrompt from "../prompts/plan.md";
+import type { Wire, ActorRef, Presence, ActivityRow, SocketAttachment } from "./wire";
+import { renderSummary } from "./summary";
 
 type NudgeKind = "soon" | "today" | "now";
 
@@ -1136,6 +1138,90 @@ export class QuorumAgent extends Agent<Env> {
       INSERT INTO events (idea_id, event_type, payload, created_at)
       VALUES (${ideaId}, ${type}, ${json}, ${now})
     `;
+  }
+
+  // ── Realtime board: broadcast + WS lifecycle ──────────────────────
+
+  /**
+   * Send a typed event to every connected WebSocket on this DO.
+   * Hibernation-aware: reads from ctx.getWebSockets() each call (no
+   * in-memory socket map) and ignores send errors on dead sockets.
+   * Named broadcastWire to avoid conflict with the partyserver base broadcast().
+   */
+  private broadcastWire(event: Wire): void {
+    const frame = JSON.stringify(event);
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.send(frame);
+      } catch {
+        // Dead socket — ctx.getWebSockets() will drop it on the next call.
+      }
+    }
+  }
+
+  /**
+   * Compose an ActivityRow from a just-appended events row.
+   * Caller supplies the freshly-inserted event id and the actor that
+   * caused it, since renderSummary needs both.
+   */
+  private activityRowFromEvent(args: {
+    event_id: number;
+    event_kind: import("./schema").EventType;
+    target_uid: string | null;
+    by: ActorRef;
+    ts: number;
+    payload: Record<string, unknown>;
+  }): ActivityRow {
+    return {
+      id: args.event_id,
+      event_kind: args.event_kind,
+      summary: renderSummary({
+        event_kind: args.event_kind,
+        target_uid: args.target_uid,
+        by: args.by,
+        payload: args.payload,
+      }),
+      by: args.by,
+      ts: args.ts,
+      target_uid: args.target_uid,
+    };
+  }
+
+  /**
+   * Snapshot of currently-connected actors. Used in the hello message
+   * sent by the /socket route (Task 5).
+   */
+  private currentPresence(): Presence[] {
+    const out: Presence[] = [];
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = ws.deserializeAttachment() as SocketAttachment | null;
+      if (!att) continue;
+      out.push({
+        connection_id: att.connection_id,
+        actor: att.login
+          ? { kind: "user", login: att.login, avatar: att.avatar ?? "" }
+          : { kind: "anon", id: att.voter_key.startsWith("anon:") ? att.voter_key.slice(5) : att.voter_key },
+        joined_at: att.joined_at,
+      });
+    }
+    return out;
+  }
+
+  // Hibernating WebSockets lifecycle hooks. They run on cold-wake too,
+  // hence reading per-connection state from ws.deserializeAttachment.
+
+  async webSocketMessage(_ws: WebSocket, _msg: string | ArrayBuffer): Promise<void> {
+    // v1: clients send no messages over the socket. Ignore.
+  }
+
+  async webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
+    const att = ws.deserializeAttachment() as SocketAttachment | null;
+    if (!att) return;
+    this.broadcastWire({ kind: "presence_leave", connection_id: att.connection_id });
+  }
+
+  async webSocketError(_ws: WebSocket, _err: unknown): Promise<void> {
+    // close hook will follow; no broadcast here.
   }
 }
 
