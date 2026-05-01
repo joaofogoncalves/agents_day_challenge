@@ -556,6 +556,20 @@ export class QuorumAgent extends Agent<Env> {
       WHERE id = ${id}
     `;
     this.appendEvent(id, "idea_phase_change", { old, new: status, reason });
+    const uid = `qrm_${String(id).padStart(6, "0")}`;
+    const eventRow = (this.sql`SELECT id, created_at FROM events WHERE id = (SELECT MAX(id) FROM events)`)[0] as { id: number; created_at: number } | undefined;
+    if (eventRow) {
+      const by: ActorRef = { kind: "agent" };
+      const activity = this.activityRowFromEvent({
+        event_id: eventRow.id,
+        event_kind: "idea_phase_change",
+        target_uid: uid,
+        by,
+        ts: eventRow.created_at,
+        payload: { status, reason },
+      });
+      this.broadcastWire({ kind: "idea_phase_change", uid, status, activity });
+    }
     return true;
   }
 
@@ -883,6 +897,22 @@ export class QuorumAgent extends Agent<Env> {
       reason,
       required_skills: parsed?.required_skills ?? [],
     });
+    const uid = `qrm_${String(id).padStart(6, "0")}`;
+    const ideaRow = this.getBoard(null).find((i) => i.uid === uid);
+    const eventRow = (this.sql`SELECT id, created_at FROM events WHERE id = (SELECT MAX(id) FROM events)`)[0] as { id: number; created_at: number } | undefined;
+    if (ideaRow && eventRow) {
+      const by: ActorRef = { kind: "agent" };
+      const activity = this.activityRowFromEvent({
+        event_id: eventRow.id,
+        event_kind: "scored",
+        target_uid: uid,
+        by,
+        ts: eventRow.created_at,
+        payload: { score: ideaRow.score },
+      });
+      const components = { team, resource, market };
+      this.broadcastWire({ kind: "scored", uid, score: ideaRow.score, components, activity });
+    }
     return { team, resource, market, votes: idea.votes ?? 0, reason };
   }
 
@@ -1278,7 +1308,7 @@ export class QuorumAgent extends Agent<Env> {
 
   // ── Events (audit log) ───────────────────────────────────────────
 
-  private appendEvent(
+  appendEvent(
     ideaId: number | null,
     type: EventType,
     payload: Record<string, unknown>,
@@ -1299,7 +1329,7 @@ export class QuorumAgent extends Agent<Env> {
    * in-memory socket map) and ignores send errors on dead sockets.
    * Named broadcastWire to avoid conflict with the partyserver base broadcast().
    */
-  private broadcastWire(event: Wire): void {
+  broadcastWire(event: Wire): void {
     const frame = JSON.stringify(event);
     for (const ws of this.ctx.getWebSockets()) {
       try {
@@ -1315,7 +1345,7 @@ export class QuorumAgent extends Agent<Env> {
    * Caller supplies the freshly-inserted event id and the actor that
    * caused it, since renderSummary needs both.
    */
-  private activityRowFromEvent(args: {
+  activityRowFromEvent(args: {
     event_id: number;
     event_kind: import("./schema").EventType;
     target_uid: string | null;
