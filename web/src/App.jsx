@@ -247,32 +247,74 @@ function Card({ idea, delay, onOpen, onVote, isAuthed }) {
   const clickable = !!onOpen;
 
   // The card body is clickable iff onOpen is set (= editor). Anyone else just
-  // sees a static surface. The vote button is its own click target and stops
-  // propagation so it works regardless of card-level interactivity.
+  // sees a static surface. The vote button and the score badge are their own
+  // click targets that stop propagation so they work regardless of
+  // card-level interactivity.
   const Tag = clickable ? 'button' : 'div';
   const handleCardClick = clickable ? () => onOpen(idea.uid) : undefined;
+
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
 
   const handleVote = (e) => {
     e.stopPropagation();
     if (onVote) onVote(idea.uid);
   };
 
+  // Toggle the in-card scoring breakdown. Always available — anyone, editor
+  // or viewer, can inspect how a score was assembled. We use role=button on a
+  // div (not a real <button>) because the parent card may itself be a
+  // <button> for editors, and nested <button> is invalid HTML.
+  const toggleBreakdown = (e) => {
+    e.stopPropagation();
+    setBreakdownOpen((open) => !open);
+  };
+  const onScoreKey = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      toggleBreakdown(e);
+    }
+  };
+
   return (
     <Tag
-      className={`card ${clickable ? '' : 'card--static'}`}
+      className={`card ${clickable ? '' : 'card--static'} ${breakdownOpen ? 'card--open' : ''}`}
       style={{ '--d': delay }}
       onClick={handleCardClick}
       aria-label={clickable ? `Open ${idea.name}` : idea.name}
     >
       <div className="card__top">
         <h3 className="card__name">{idea.name}</h3>
-        <div className="card__score" aria-label={`score ${idea.score} of 10`}>
+        <div
+          className={`card__score ${breakdownOpen ? 'card__score--open' : ''}`}
+          role="button"
+          tabIndex={0}
+          aria-expanded={breakdownOpen}
+          aria-label={`Score ${idea.score} of 10. ${breakdownOpen ? 'Hide' : 'Show'} breakdown.`}
+          onClick={toggleBreakdown}
+          onKeyDown={onScoreKey}
+        >
           <span className="card__score-num">{idea.score}</span>
           <span className="card__score-den">/10</span>
+          <span className="card__score-caret" aria-hidden="true">▾</span>
         </div>
       </div>
 
       <p className="card__brief">{idea.brief}</p>
+
+      {breakdownOpen && (
+        <div className="card__breakdown" onClick={(e) => e.stopPropagation()}>
+          <ScoreBar label="team" weight={0.5} value={idea.score_team} />
+          <ScoreBar label="resource" weight={0.4} value={idea.score_resource} />
+          <ScoreBar label="market" weight={0.1} value={idea.score_market ?? 0.5} />
+          {idea.score_reason ? (
+            <p className="card__breakdown-reason">{idea.score_reason}</p>
+          ) : (
+            <p className="card__breakdown-reason card__breakdown-reason--pending">
+              not yet validated
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="card__meta">
         <span className="chip">
@@ -299,6 +341,23 @@ function Card({ idea, delay, onOpen, onVote, isAuthed }) {
         )}
       </div>
     </Tag>
+  );
+}
+
+function ScoreBar({ label, weight, value }) {
+  const isPending = value == null;
+  const pct = isPending ? 0 : Math.max(0, Math.min(1, value));
+  return (
+    <div className={`bar ${isPending ? 'bar--pending' : ''}`}>
+      <div className="bar__head">
+        <span className="bar__label">{label}</span>
+        <span className="bar__weight">×{Math.round(weight * 100)}%</span>
+        <span className="bar__value">{isPending ? '—' : value.toFixed(2)}</span>
+      </div>
+      <div className="bar__track">
+        <div className="bar__fill" style={{ width: `${pct * 100}%` }} />
+      </div>
+    </div>
   );
 }
 

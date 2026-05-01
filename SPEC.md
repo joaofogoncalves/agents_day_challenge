@@ -193,10 +193,18 @@ type Idea = {
   brief: string;     // falls back to `text` if `brief` is empty
   long: string;
   hours: number | null;
-  score: number;     // 0–10 integer, derived
+  score: number;            // 0–10 integer, derived from composite
+  score_team: number | null;     // 0–1 raw fit, null until validated
+  score_resource: number | null; // 0–1 raw fit, null until validated
+  score_market: number;          // 0–1, currently constant 0.5
+  score_reason: string | null;   // last_reason from the most recent scoring
   stage: 'bucket' | 'candidates' | 'selected';
+  votes: number;
+  voted_by_me: boolean;
 };
 ```
+
+The `score_*` fields back the in-card "click the score to see the breakdown" UI in `web/`. The composite score the model assigns is the same `composite = 0.5*team + 0.4*resource + 0.1*market_placeholder` formula scored to 0–10; the per-fit values are exposed so the UI can render a progress bar per category. `score_reason` is the LLM's one-sentence rationale (≤150 chars, see `prompts/scoring.md`).
 
 `PATCH /api/ideas/<uid>` accepts `{ name?: string, long?: string }`. Other fields are agent-owned and rejected. Writes append an `idea_edited` row to `events`. Response: `{ idea: Idea }`.
 

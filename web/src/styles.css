@@ -430,6 +430,17 @@ input, textarea { font: inherit; color: inherit; }
   font-family: var(--mono);
   font-feature-settings: 'tnum';
   flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 4px 2px 6px;
+  margin: -2px -4px -2px -6px;
+  border-radius: 2px;
+  transition: color 150ms ease;
+}
+
+.card__score:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .card__score-num {
@@ -442,6 +453,119 @@ input, textarea { font: inherit; color: inherit; }
 .card__score-den {
   font-size: 11px;
   color: var(--faint);
+}
+
+.card__score-caret {
+  font-size: 9px;
+  color: var(--faint);
+  margin-left: 5px;
+  line-height: 1;
+  align-self: center;
+  display: inline-block;
+  transition: transform 220ms cubic-bezier(.2,.7,.2,1), color 150ms ease;
+}
+
+.card__score:hover .card__score-caret {
+  color: var(--accent);
+}
+
+.card__score--open .card__score-caret {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+
+/* ───────────────────  SCORE BREAKDOWN  ──────────────────── */
+
+.card__breakdown {
+  margin: 4px 0 14px;
+  padding: 14px 0 8px;
+  border-top: 1px dashed var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: breakdownIn 240ms cubic-bezier(.2,.7,.2,1) both;
+}
+
+@keyframes breakdownIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.bar {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.bar__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
+  font-feature-settings: 'tnum';
+}
+
+.bar__label {
+  color: var(--ink-1);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  font-size: 9.5px;
+}
+
+.bar__weight {
+  color: var(--faint);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+}
+
+.bar__value {
+  margin-left: auto;
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.bar__track {
+  position: relative;
+  height: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.bar__fill {
+  height: 100%;
+  background: var(--accent);
+  animation: barIn 420ms cubic-bezier(.2,.7,.2,1) 60ms both;
+}
+
+@keyframes barIn {
+  from { width: 0; }
+}
+
+.bar--pending .bar__label,
+.bar--pending .bar__weight,
+.bar--pending .bar__value {
+  color: var(--faint);
+}
+
+.bar--pending .bar__fill {
+  background: var(--faint);
+}
+
+.card__breakdown-reason {
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-1);
+  font-style: italic;
+}
+
+.card__breakdown-reason--pending {
+  color: var(--faint);
+  font-style: normal;
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
 }
 
 .card__brief {

@@ -153,7 +153,15 @@ export type BoardIdea = {
   name: string;
   brief: string;
   long: string;
+  /** 0–10 integer, derived from composite of the three fits. */
   score: number;
+  /** Raw fit values in [0, 1], or null when the idea has not been validated yet. */
+  score_team: number | null;
+  score_resource: number | null;
+  /** Always set; current placeholder is constant 0.5 until a market signal is wired. */
+  score_market: number;
+  /** One-sentence rationale from the last scoring pass. Null until validated. */
+  score_reason: string | null;
   hours: number | null;
   stage: "bucket" | "candidates" | "selected";
   votes: number;
