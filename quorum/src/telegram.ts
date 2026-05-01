@@ -593,6 +593,36 @@ async function dispatchDecision(
       }
       return;
     }
+
+    case "update_idea_prose": {
+      // Prose edits replace, never append. To avoid silently clobbering
+      // existing content, only auto-execute when the router is confident
+      // AND the target field is currently empty. Anything else proposes
+      // with a "yes" gate so the user can see what would be overwritten.
+      const idea = agent.getIdea(plan.idea_id);
+      if (!idea) {
+        await ctx.reply(fmt.notFound(plan.idea_id));
+        return;
+      }
+      const current = (idea[plan.field] ?? "").trim();
+      const slashCmd =
+        plan.field === "name" ? `/name (no slash command — use the board)` :
+        plan.field === "brief" ? `\`/brief ${plan.idea_id} <text>\`` :
+        `\`/long ${plan.idea_id} <text>\``;
+      if (confidence >= HIGH_CONFIDENCE && !current) {
+        agent.updateIdea(plan.idea_id, { [plan.field]: plan.text }, `tg:${authorId}`);
+        await ctx.reply(`#${plan.idea_id} ${plan.field} updated.`);
+      } else {
+        agent.setPendingConfirmation(authorId, plan);
+        const verb = current ? "Replace" : "Set";
+        const preview = plan.text.length > 200 ? plan.text.slice(0, 200) + "…" : plan.text;
+        await ctx.reply(
+          `${verb} the *${plan.field}* of #${plan.idea_id} with:\n\n_${preview}_\n\nReply *yes* to confirm — or run ${slashCmd}.`,
+          { parse_mode: "Markdown" },
+        );
+      }
+      return;
+    }
   }
 }
 
@@ -630,6 +660,15 @@ async function executePlan(
     }
     case "validate_idea": {
       await runValidateIdea(ctx, agent, plan.idea_id);
+      return;
+    }
+    case "update_idea_prose": {
+      const updated = agent.updateIdea(
+        plan.idea_id,
+        { [plan.field]: plan.text },
+        `tg:${authorId}`,
+      );
+      await ctx.reply(updated ? `#${plan.idea_id} ${plan.field} updated.` : fmt.notFound(plan.idea_id));
       return;
     }
     case "answer_question":

@@ -104,10 +104,11 @@ In addition to slash commands, the bot now reads every plain-text message and ac
    - `kill #N` → `setStatus(N, "killed")`
    - `park #N` → `setStatus(N, "parked")`
    - `promote #N` → `promote(N)`
-3. **LLM intent router** (only when **addressed** — `@<botUsername>`, reply-to-bot, or private chat). Runs `routeIntent(ai, target, priorContext, addressed)` against an OpenAI-style tool surface (`add_idea | propose_constraint | answer_question | record_member | validate_idea | noop`). The router is given the **target message** (the single line to act on) explicitly separated from **prior context** (older history, for situational awareness only — never a candidate for action). After dispatch, the target message's `intent_json` is set via `markRouted`, so it never re-fires next turn even though it stays in the rolling window. Confidence-banded:
+3. **LLM intent router** (only when **addressed** — `@<botUsername>`, reply-to-bot, or private chat). Runs `routeIntent(ai, target, priorContext, addressed)` against an OpenAI-style tool surface (`add_idea | propose_constraint | answer_question | record_member | validate_idea | update_idea_prose | noop`). The router is given the **target message** (the single line to act on) explicitly separated from **prior context** (older history, for situational awareness only — never a candidate for action). After dispatch, the target message's `intent_json` is set via `markRouted`, so it never re-fires next turn even though it stays in the rolling window. Confidence-banded:
    - `≥ 0.75` for safe non-cascading actions → execute, brief reply.
    - any `propose_constraint` → never auto-executes; stashes an `ActionPlan` in `pending_confirmations`, asks the user "reply *yes*…".
-   - `noop` or low-confidence → minimal/no reply.
+   - `update_idea_prose` → executes only when **both** confidence ≥ 0.75 **and** the target field (`name`/`brief`/`long`) is currently empty. Anything else proposes-with-preview to avoid silent overwrites.
+   - `noop` or low-confidence → admit the bot is unsure, point at `/help`. Never go silent when addressed.
 
 Pending confirmations live ≤ 180s. A user replying `yes` (or `y`/`yep`/`👍`/`✅`) inside the TTL runs the stashed plan via `executePlan`.
 
@@ -124,8 +125,8 @@ Reply format is plain text (Telegram MarkdownV2 escaping handled by `format.ts`)
 | `/idea <text>` | text | INSERT into `ideas`, status=ideating | `Idea #N added — "<text>"` |
 | `/ideas [phase]` | optional phase filter | SELECT, sorted by composite | List with `#id score text` |
 | `/vote <id>` | idea id | Toggle vote for caller (idempotent per `(idea, voter)`) | `Voted. Total: N` / `Vote removed. Total: N` |
-| `/brief <id> <text>` | id, one-line text | Set the one-line description shown on the card. Reuses `updateIdea`; logs `idea_edited`. | `#N brief updated.` |
-| `/long <id> <text>` | id, long text | Set the long description shown in the editor modal. Reuses `updateIdea`; logs `idea_edited`. | `#N long description updated.` |
+| `/brief <id> <text>` | id, one-line text | Set the one-line description shown on the card. Reuses `updateIdea`; logs `idea_edited`. Routable via `update_idea_prose` (`field: brief`) — "update the brief of #3 to …". | `#N brief updated.` |
+| `/long <id> <text>` | id, long text | Set the long description shown in the editor modal. Reuses `updateIdea`; logs `idea_edited`. Routable via `update_idea_prose` (`field: long`) — "add details to #1: …", "flesh out idea 2 with …". | `#N long description updated.` |
 | `/event <url>` | url | Scrape, populate `context`, recompute fit on all ideas | `Context set: deadline=…, budget=…. Recomputed N ideas.` |
 | `/constraint <text>` | text, or `-` to clear | With text: UPSERT `context`, **re-validate all parked/killed**. With `-`: clears both `context.constraints` (JSON array from `/event`) and `context.constraint` (singular). Empty: prints usage. | `Reanimated: [#x, #y]. Demoted: [#z]. Reason: …` / `Constraints cleared.` |
 | `/me <text>` | free-text skills | LLM extract → `members.skills_json` | `Saved skills: [t1, t2, …]` |
@@ -276,7 +277,8 @@ The Agent class is the canonical state owner. All command handlers go through th
 | `teamSummary()` | — | `{ strong: string[], gaps: string[], members: number }` | `/team` |
 | `planFor(id)` | `number` | `string` (markdown) | `/plan` |
 | `getBoard(voterKey)` | `string \| null` | `BoardIdea[]` | `GET /api/board` (voterKey populates `voted_by_me`) |
-| `updateIdea(id, patch, editor, voterKey)` | `number, {name?, brief?, long?}, string, string\|null` | `BoardIdea \| null` | `PATCH /api/ideas/:uid` (Worker enforces editor whitelist before forwarding); also called by Telegram `/brief`, `/long` with `editor = "tg:<userId>"` |
+| `updateIdea(id, patch, editor, voterKey)` | `number, {name?, brief?, long?}, string, string\|null` | `BoardIdea \| null` | `PATCH /api/ideas/:uid` (Worker enforces editor whitelist before forwarding); also called by Telegram `/brief`, `/long`, and the router `update_idea_prose` arm with `editor = "tg:<userId>"` |
+| `getIdea(id)` | `number` | `Idea \| null` | Read a single idea row. Used by the `update_idea_prose` dispatcher to check whether the target field is empty (auto-execute) or has content (force a yes-confirmation preview). |
 | `observe(text, authorId, authorName, addressed)` | `string, string\|null, string\|null, boolean` | `number` (inserted message id) | every plain-text message |
 | `markRouted(messageId, intent)` | `number, ActionPlan` | `void` | After router dispatch (or any deterministic handling). Sets `messages.intent_json` so the message stops being a candidate for re-action. |
 | `priorContext(beforeId, limit?)` | `number, number?` (default 7) | `Message[]` | Older unrouted history (intent_json IS NULL), oldest-first. Router context only — never the action target. |

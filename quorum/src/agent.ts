@@ -373,6 +373,14 @@ export class QuorumAgent extends Agent<Env> {
     return gh ? `gh:${gh}` : `tg:${telegramUserId}`;
   }
 
+  /** Read a single idea row by integer id. Used by the router-driven prose
+   *  editor to decide whether the target field is empty (safe to overwrite)
+   *  or already has content (force a confirmation step). */
+  getIdea(id: number): Idea | null {
+    const rows = this.sql<Idea>`SELECT * FROM ideas WHERE id = ${id}`;
+    return rows[0] ?? null;
+  }
+
   listIdeas(phase?: string): Idea[] {
     if (phase) {
       return this.sql<Idea>`

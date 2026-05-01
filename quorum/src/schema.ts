@@ -231,4 +231,5 @@ export type ActionPlan =
   | { kind: "answer_question"; question: string }
   | { kind: "record_member"; text: string }
   | { kind: "validate_idea"; idea_id: number }
+  | { kind: "update_idea_prose"; idea_id: number; field: "name" | "brief" | "long"; text: string }
   | { kind: "noop" };

@@ -11,8 +11,23 @@
  */
 
 import { completeWithTools, loadPrompt, type ChatMessage, type Tool } from "./llm";
-import type { Message, ActionPlan } from "./schema";
+import { idFromUid, type Message, type ActionPlan } from "./schema";
 import routerPrompt from "../prompts/router.md";
+
+/** Coerce whatever the LLM put in `idea_id` to an integer id. Accepts a
+ *  literal number, a numeric string ("3", "#3"), or the public uid form
+ *  ("qrm_000003"). Returns null when nothing parseable comes back. */
+function coerceIdeaId(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  if (/^qrm_/i.test(s)) {
+    const fromUid = idFromUid(s.toLowerCase());
+    return fromUid && Number.isFinite(fromUid) ? fromUid : null;
+  }
+  const n = parseInt(s.replace(/^#/, ""), 10);
+  return Number.isFinite(n) ? n : null;
+}
 
 /**
  * Anything matching this pattern is almost certainly a prompt-injection
@@ -108,6 +123,28 @@ const ROUTER_TOOLS: Tool[] = [
   {
     type: "function",
     function: {
+      name: "update_idea_prose",
+      description:
+        "Edit the text of an existing idea — its short name, one-line brief, or long description. Use when the user wants to add details, flesh out, rename, or rewrite an idea they've identified by id (e.g. 'add details to #1: …', 'rename #2 to …', 'update the brief of #3 with …'). Replaces the field's current content with the supplied text — the dispatcher decides whether to confirm first.",
+      parameters: {
+        type: "object",
+        properties: {
+          idea_id: { type: "number", description: "The integer idea id (e.g. 1 for '#1')." },
+          field: {
+            type: "string",
+            enum: ["name", "brief", "long"],
+            description: "Which field to overwrite. 'name' = short title; 'brief' = one-liner pitch; 'long' = the multi-paragraph description.",
+          },
+          text: { type: "string", description: "The new content for the field. Verbatim from the user when possible; do not invent details." },
+          confidence: { type: "number", description: "0..1; <0.75 means propose, don't execute." },
+        },
+        required: ["idea_id", "field", "text", "confidence"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "noop",
       description: "Default. The message doesn't warrant action — small talk, off-topic, ambiguous, or unsafe.",
       parameters: { type: "object", properties: {} },
@@ -177,12 +214,25 @@ export async function routeIntent(
       return { plan: { kind: "record_member", text }, confidence: conf };
     }
     case "validate_idea": {
-      const raw = call.args["idea_id"];
-      const ideaId = typeof raw === "number" ? raw : parseInt(String(raw ?? ""), 10);
-      if (!Number.isFinite(ideaId) || ideaId <= 0) {
+      const ideaId = coerceIdeaId(call.args["idea_id"]);
+      if (ideaId == null || ideaId <= 0) {
         return { plan: { kind: "noop" }, confidence: 0 };
       }
       return { plan: { kind: "validate_idea", idea_id: ideaId }, confidence: conf };
+    }
+    case "update_idea_prose": {
+      const ideaId = coerceIdeaId(call.args["idea_id"]);
+      const field = String(call.args["field"] ?? "").toLowerCase();
+      const text = String(call.args["text"] ?? "").trim();
+      const allowed = field === "name" || field === "brief" || field === "long";
+      if (ideaId == null || ideaId <= 0 || !allowed || !text) {
+        return { plan: { kind: "noop" }, confidence: 0 };
+      }
+      const cap = field === "name" ? 200 : field === "brief" ? 500 : 5000;
+      return {
+        plan: { kind: "update_idea_prose", idea_id: ideaId, field: field as "name" | "brief" | "long", text: text.slice(0, cap) },
+        confidence: conf,
+      };
     }
     default:
       return { plan: { kind: "noop" }, confidence: 0 };
