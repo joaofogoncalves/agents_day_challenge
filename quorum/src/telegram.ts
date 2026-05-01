@@ -18,6 +18,7 @@ import { extractEvent } from "./extract-event";
 import * as github from "./github";
 import { routeIntent } from "./router";
 import type { ActionPlan } from "./schema";
+import { composite } from "./scoring";
 
 export function createBot(agent: QuorumAgent, token: string): Bot {
   // Let grammy fetch botInfo via getMe() lazily on first request.
@@ -62,7 +63,7 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
     const ideas = agent.listIdeas(phase);
     const lines = ideas.map((idea) => ({
       idea,
-      score: idea.score_team == null ? null : idea.score_team,
+      score: idea.score_team == null ? null : composite({ team: idea.score_team, resource: idea.score_resource }),
     }));
     await ctx.reply(fmt.ideasList(lines));
   });
@@ -79,7 +80,20 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
     const id = parseInt(ctx.match.trim(), 10);
     if (!Number.isFinite(id)) return ctx.reply("usage: /promote <id>");
     const out = agent.promote(id);
-    await ctx.reply(out ?? fmt.notFound(id));
+    if (!out) return ctx.reply(fmt.notFound(id));
+    // Auto-validate when landing at 'validating' so scores appear immediately.
+    if (out.includes("→ validating")) {
+      await ctx.reply(out + "\nScoring…");
+      try {
+        const scores = await agent.validateIdea(id);
+        const c = composite({ team: scores.team, resource: scores.resource });
+        await ctx.reply(`#${id} score: ${(c * 10).toFixed(0)}/10 — ${scores.reason}`);
+      } catch {
+        await ctx.reply(`#${id} scoring failed — will retry on /constraint`);
+      }
+    } else {
+      await ctx.reply(out);
+    }
   });
 
   bot.command("park", async (ctx) => {
@@ -107,7 +121,7 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
     const ideas = agent.rank(3);
     const lines = ideas.map((idea) => ({
       idea,
-      score: idea.score_team == null ? null : idea.score_team,
+      score: idea.score_team == null ? null : composite({ team: idea.score_team, resource: idea.score_resource }),
     }));
     await ctx.reply(fmt.ideasList(lines));
   });
@@ -444,7 +458,19 @@ async function tryRegexShortcut(
   if (promoteMatch) {
     const id = parseInt(promoteMatch[1] ?? "0", 10);
     const out = agent.promote(id);
-    await ctx.reply(out ?? fmt.notFound(id));
+    if (!out) { await ctx.reply(fmt.notFound(id)); return true; }
+    if (out.includes("→ validating")) {
+      await ctx.reply(out + "\nScoring…");
+      try {
+        const scores = await agent.validateIdea(id);
+        const c = composite({ team: scores.team, resource: scores.resource });
+        await ctx.reply(`#${id} score: ${(c * 10).toFixed(0)}/10 — ${scores.reason}`);
+      } catch {
+        await ctx.reply(`#${id} scoring failed — will retry on /constraint`);
+      }
+    } else {
+      await ctx.reply(out);
+    }
     return true;
   }
 
