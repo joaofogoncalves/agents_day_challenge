@@ -46,8 +46,9 @@ Mock list lives at `web/public/mock.json` under `{ "ideas": Idea[], "name": stri
 
 The board is a **window into agent state**. Be strict about this — edit affordances anywhere else are a UX bug.
 
-- **User-editable** (in the modal only): `name`, `long`.
-- **Agent-only** (read-only in UI): `uid`, `stage`, `score`, `hours`, `brief`.
+- **Anyone can open** an idea card (clicks the body) to see the full detail modal — name, brief, score, estimate, long description. Read-only for non-editors; the modal hides the save button and shows the form fields as static blocks. Vote button on the card is the only action available to viewers.
+- **Editors only** (whitelist + signed-in) get input fields for `name` and `long`, plus the save button.
+- **Agent-only** (read-only for everyone, including editors): `uid`, `stage`, `score`, `hours`, `brief`.
 
 `uid` is shown faded in the modal header, selectable for copy. Never show it on the card.
 

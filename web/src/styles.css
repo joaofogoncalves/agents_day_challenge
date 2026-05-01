@@ -1126,6 +1126,21 @@ input, textarea { font: inherit; color: inherit; }
   line-height: 1.55;
 }
 
+/* Mirror the editor input shapes for parity with edit mode. */
+.field__readonly--display {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  color: var(--ink);
+}
+
+.field__readonly--long {
+  min-height: 180px;
+  white-space: pre-wrap;
+  color: var(--ink-1);
+}
+
 .modal__foot {
   display: flex; align-items: center; justify-content: space-between;
   gap: 16px;

@@ -125,7 +125,7 @@ export default function App() {
               column={col}
               ideas={byStage[col.id]}
               loading={loading}
-              onOpen={canEdit ? setOpenId : null}
+              onOpen={setOpenId}
               onVote={canVote ? toggleVote : null}
               isAuthed={isAuthed}
             />
@@ -148,8 +148,13 @@ export default function App() {
         )}
       </footer>
 
-      {open && canEdit && (
-        <Editor idea={open} onClose={() => setOpenId(null)} onSave={updateIdea} />
+      {open && (
+        <Editor
+          idea={open}
+          canEdit={canEdit}
+          onClose={() => setOpenId(null)}
+          onSave={updateIdea}
+        />
       )}
     </div>
   );
@@ -460,10 +465,10 @@ function Column({ column, ideas, loading, onOpen, onVote, isAuthed, index }) {
 function Card({ idea, delay, onOpen, onVote, isAuthed }) {
   const clickable = !!onOpen;
 
-  // The card body is clickable iff onOpen is set (= editor). Anyone else just
-  // sees a static surface. The vote button and the score badge are their own
-  // click targets that stop propagation so they work regardless of
-  // card-level interactivity.
+  // The card opens the modal for everyone — editors get an editable form,
+  // viewers get a read-only detail view (handled inside <Editor>). The vote
+  // button and the score badge are their own click targets that stop
+  // propagation so they work regardless of card-level interactivity.
   const Tag = clickable ? 'button' : 'div';
   const handleCardClick = clickable ? () => onOpen(idea.uid) : undefined;
 
@@ -582,7 +587,7 @@ function ScoreBar({ label, weight, value }) {
   );
 }
 
-function Editor({ idea, onClose, onSave }) {
+function Editor({ idea, canEdit, onClose, onSave }) {
   const [name, setName] = useState(idea.name);
   const [long, setLong] = useState(idea.long);
   const unvalidated = idea.score_team == null && idea.score_resource == null;
@@ -595,13 +600,15 @@ function Editor({ idea, onClose, onSave }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const dirty = name !== idea.name || long !== idea.long;
+  const dirty = canEdit && (name !== idea.name || long !== idea.long);
 
   const save = () => {
     if (!dirty) return onClose();
     onSave(idea.uid, { name, long });
     onClose();
   };
+
+  const hoursLabel = idea.hours == null ? '—' : `~${idea.hours}h`;
 
   return (
     <div className="modal" onClick={onClose}>
@@ -614,49 +621,69 @@ function Editor({ idea, onClose, onSave }) {
         </div>
 
         <div className="modal__body">
-          <label className="field">
-            <span className="field__label">name</span>
-            <input
-              className="field__input field__input--display"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
-            />
-          </label>
+          {canEdit ? (
+            <label className="field">
+              <span className="field__label">name</span>
+              <input
+                className="field__input field__input--display"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoFocus
+              />
+            </label>
+          ) : (
+            <div className="field">
+              <span className="field__label">name</span>
+              <div className="field__readonly field__readonly--display">{idea.name}</div>
+            </div>
+          )}
 
           <div className="modal__row">
             <ReadOnly label="stage" value={idea.stage} />
             <ReadOnly label="score" value={unvalidated ? '—/10' : `${idea.score}/10`} />
-            <ReadOnly label="estimate" value={`~${idea.hours}h`} />
+            <ReadOnly label="estimate" value={hoursLabel} />
           </div>
 
-          <label className="field">
+          <div className="field">
             <span className="field__label">brief</span>
             <div className="field__readonly">{idea.brief}</div>
-          </label>
+          </div>
 
-          <label className="field">
-            <span className="field__label">long description</span>
-            <textarea
-              className="field__input field__input--long"
-              value={long}
-              onChange={(e) => setLong(e.target.value)}
-              rows={9}
-            />
-          </label>
+          {canEdit ? (
+            <label className="field">
+              <span className="field__label">long description</span>
+              <textarea
+                className="field__input field__input--long"
+                value={long}
+                onChange={(e) => setLong(e.target.value)}
+                rows={9}
+              />
+            </label>
+          ) : (
+            <div className="field">
+              <span className="field__label">long description</span>
+              <div className="field__readonly field__readonly--long">
+                {idea.long || <span className="muted">— no long description yet —</span>}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="modal__foot">
           <span className="modal__hint">
-            score, estimate &amp; stage are agent-controlled. esc to close.
+            {canEdit
+              ? 'score, estimate & stage are agent-controlled. esc to close.'
+              : 'read-only · esc to close · sign in as an editor to edit'}
           </span>
           <div className="modal__actions">
             <button className="btn btn--ghost" onClick={onClose}>
-              cancel
+              {canEdit ? 'cancel' : 'close'}
             </button>
-            <button className="btn btn--primary" onClick={save} disabled={!dirty}>
-              save
-            </button>
+            {canEdit && (
+              <button className="btn btn--primary" onClick={save} disabled={!dirty}>
+                save
+              </button>
+            )}
           </div>
         </div>
       </div>

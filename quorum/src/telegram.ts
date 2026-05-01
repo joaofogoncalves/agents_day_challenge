@@ -31,11 +31,17 @@ export function createBot(agent: QuorumAgent, token: string): Bot {
   bot.command("start", async (ctx) => {
     const base = agent.bindings.PUBLIC_BASE_URL ?? "https://quorum.joao-f-o-goncalves.workers.dev";
     const boardUrl = `${base}/?chat=${ctx.chat.id}`;
-    // /start can be called with a name as the argument: `/start <name>`. If
-    // supplied, save it. Otherwise use whatever the chat already named the
-    // board (might be null for fresh chats).
+    // /start <name> wins. If no arg and no name yet, fall back to the
+    // Telegram group's title so the board has *some* identity without
+    // forcing the user to /name. Only nag if we still end up nameless
+    // (1:1 DMs have no chat.title).
     const arg = ctx.match.trim();
-    if (arg) agent.setBoardName(arg);
+    if (arg) {
+      agent.setBoardName(arg);
+    } else if (!agent.getBoardName()) {
+      const chatTitle = "title" in ctx.chat ? (ctx.chat.title ?? "").trim() : "";
+      if (chatTitle) agent.setBoardName(chatTitle);
+    }
     const name = agent.getBoardName();
     const deadline = agent.getDeadline();
     const lines = [fmt.welcome(name), "", "📋 Live board for this chat:", boardUrl];
