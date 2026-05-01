@@ -42,6 +42,10 @@ This is a 1-day build with three people working concurrently. To minimize merge 
 - **Conflict resolution: whoever pushes second.** Ping the other person in chat.
 - If `git push` to main is blocked by a hook/policy, surface it to the team immediately so it can be unblocked at session start (path: settings.json permission rule). Do **not** silently fall back to long-lived branches — the workflow assumes main-trunk.
 
+### Project-tracker bot
+
+`.github/workflows/notify-telegram.yml` posts a short summary to the team Telegram group on every push to `main`. This is meta/CI, not part of the Quorum product (though it can reuse the same bot token). Setup steps live in the workflow header. Per-commit opt-out: include `[skip notify]` in the commit message. If a push lands but no Telegram message arrives, check the workflow run on GitHub — most failures are unset `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`, or the bot not yet a member of the group.
+
 ## Scaffolding (run once)
 
 ```bash
