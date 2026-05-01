@@ -56,6 +56,15 @@ export const ADDITIVE_MIGRATIONS = [
   `ALTER TABLE ideas ADD COLUMN brief TEXT`,
   `ALTER TABLE ideas ADD COLUMN long TEXT`,
   `ALTER TABLE ideas ADD COLUMN hours INTEGER`,
+  // feat/social-ranking-and-auth: per-user vote tracking. PRIMARY KEY enforces
+  // one vote per (idea, voter). voter_key = "gh:<lowercased_login>" for web,
+  // "tg:<user_id>" reserved for a future Telegram unification.
+  `CREATE TABLE IF NOT EXISTS idea_votes (
+    idea_id INTEGER NOT NULL,
+    voter_key TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (idea_id, voter_key)
+  )`,
 ] as const;
 
 export type Status =
@@ -95,6 +104,8 @@ export type BoardIdea = {
   score: number;
   hours: number | null;
   stage: "bucket" | "candidates" | "selected";
+  votes: number;
+  voted_by_me: boolean;
 };
 
 /** Status → board stage. Statuses outside the board are excluded from the API response. */
@@ -131,4 +142,5 @@ export type EventType =
   | "context_changed"
   | "scored"
   | "reanimated"
-  | "demoted";
+  | "demoted"
+  | "idea_edited";
