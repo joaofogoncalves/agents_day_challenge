@@ -44,7 +44,6 @@ No deck, no recorded demo — pitch is live. Bot token rotation is the only post
 Pre-demo cleanup (in flight this session):
 
 - Reconcile schema drift in `schema.ts` (CREATE TABLE vs. ADDITIVE_MIGRATIONS)
-- `git rm -r api/` — dead code
 - CSRF token on `/auth/logout` and `/api/ideas/:uid/vote`
 - `Agent.scheduleEvery()` stall-nudge cron (once-a-day prompt on stale parked ideas)
 - Final deploy + smoke test on the prod URL

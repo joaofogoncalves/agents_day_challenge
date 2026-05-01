@@ -16,8 +16,6 @@ This is the contract between team members. **Update this file in the same commit
 
 Source of truth. Migrations are append-only — never `DROP COLUMN` mid-day.
 
-> Prototype note: the standalone `api/` Worker (see "Board API" below) uses the same `ideas` and `events` schema in a separate `BoardAgent` DO with one global instance. To be folded into `QuorumAgent` per-chat before demo.
-
 ```sql
 CREATE TABLE ideas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -144,7 +142,7 @@ Reply format is plain text (Telegram MarkdownV2 escaping handled by `format.ts`)
 
 ## Board API
 
-Lives in `quorum/` (the same Worker that handles the Telegram webhook). One DO per Telegram chat — the same `QuorumAgent` that owns ideas state. The standalone `api/` Worker is **superseded**. The Worker also serves the built `web/` bundle as static assets, so the prod UI is same-origin and the frontend uses relative paths (no `VITE_API_BASE`).
+Lives in `quorum/` (the same Worker that handles the Telegram webhook). One DO per Telegram chat — the same `QuorumAgent` that owns ideas state. The Worker also serves the built `web/` bundle as static assets, so the prod UI is same-origin and the frontend uses relative paths (no `VITE_API_BASE`).
 
 ### Chat resolution
 

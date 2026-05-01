@@ -26,8 +26,8 @@ The current `TELEGRAM_BOT_TOKEN` was pasted into a Claude conversation and is in
 ### Real-time board updates
 **Rui owns.** Polling every ~5s on `/api/board` so the board reflows after `/constraint` without a manual refresh. Required for the demo's money moment.
 
-### Stall-nudge cron, `api/` cleanup, schema drift, CSRF
-These were on the deferred list but are being addressed in the same pre-demo cleanup pass. See the punch list in `CLAUDE.md`.
+### Stall-nudge cron, schema drift, CSRF
+These were on the deferred list but are being addressed in the same pre-demo cleanup pass. See the punch list in `CLAUDE.md`. (`api/` directory is gone.)
 
 ## Known issues (not blocking demo)
 

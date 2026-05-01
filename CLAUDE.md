@@ -55,7 +55,6 @@ Remaining work being addressed pre-demo:
 - [ ] **Stall-nudge cron via `Agent.scheduleEvery()`** — once a day the agent
       picks a parked idea and posts "still parked? kill, revive, or leave?".
       Demo line: "the agent lives in your chat for real."
-- [ ] **`git rm -r api/`** — dead code since the merge into `quorum/`.
 - [ ] **Schema drift cleanup** — reconcile `CREATE TABLE ideas` in
       `quorum/src/schema.ts` with the `ADDITIVE_MIGRATIONS` columns
       (`name`, `brief`, `long`, `hours`).
@@ -113,8 +112,6 @@ Per-chat state lives in a single `QuorumAgent` Durable Object instance, keyed by
 ```
 
 `/constraint` is the demo centerpiece: it re-runs validation across all `parked` and `killed` ideas, surfacing reanimation candidates. Both Telegram and the board read from the same DO state, so a `/constraint` reply in chat reflects on the board on refresh.
-
-The standalone `api/` Worker that existed mid-build is **superseded** — `quorum/` owns `/api/*`. Safe to `git rm -r api/` when convenient (no remaining caller).
 
 ## Project commands (all run from `quorum/`)
 
