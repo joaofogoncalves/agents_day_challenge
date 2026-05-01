@@ -139,7 +139,7 @@ function Header({ total, me }) {
   return (
     <header className="head">
       <div className="head__brand">
-        <span className="head__mark">◤</span>
+        <img className="head__mark" src="/logo.svg" alt="" width="22" height="22" />
         <span className="head__name">Quorum</span>
         <span className="head__tag">— what to build</span>
       </div>
