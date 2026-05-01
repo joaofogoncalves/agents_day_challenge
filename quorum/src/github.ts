@@ -25,17 +25,23 @@ export async function profile(
   };
   if (token) headers.authorization = `Bearer ${token}`;
 
-  let list: Array<{ name: string; language: string | null; description: string | null }>;
-  try {
-    const res = await fetch(
-      `https://api.github.com/users/${encodeURIComponent(handle)}/repos?per_page=30&sort=updated`,
-      { headers },
-    );
-    if (!res.ok) return null;
-    list = (await res.json()) as typeof list;
-  } catch {
-    return null;
+  // Throw on bad responses with the actual status so the /gh handler can
+  // surface "rate-limited (403)" / "not found (404)" to chat. The previous
+  // null-on-!ok path made every failure read as "couldn't reach GitHub" —
+  // misleading, since Cloudflare's shared edge IPs hit GitHub's 60/hr
+  // anonymous rate limit fast unless GITHUB_TOKEN is set.
+  const url = `https://api.github.com/users/${encodeURIComponent(handle)}/repos?per_page=30&sort=updated`;
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    const body = (await res.text()).slice(0, 200);
+    const hint = res.status === 403 ? " (rate-limited — set GITHUB_TOKEN secret)" : "";
+    throw new Error(`GitHub ${res.status}${hint}: ${body}`);
   }
+  const list = (await res.json()) as Array<{
+    name: string;
+    language: string | null;
+    description: string | null;
+  }>;
 
   // Count language frequency then sort descending.
   const freq = new Map<string, number>();
