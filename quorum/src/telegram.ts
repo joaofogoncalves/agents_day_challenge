@@ -21,10 +21,11 @@ import type { ActionPlan } from "./schema";
 import { composite } from "./scoring";
 
 export function createBot(agent: QuorumAgent, token: string): Bot {
-  // Let grammy fetch botInfo via getMe() lazily on first request.
-  // Hardcoding it caused command-matching bugs because @BotFather registered
-  // "Quorom_bot" (typo) while we'd typed "quorum_bot". One extra round-trip
-  // per DO cold start is a fair price for correctness.
+  // Let grammy fetch botInfo via getMe() lazily on first request. Hardcoding
+  // it previously caused command-matching bugs when the BotFather username
+  // didn't match what we'd typed in code. One extra round-trip per DO cold
+  // start is a fair price for correctness — and it means a BotFather rename
+  // (e.g. @quorom_bot → @quorum_bot) takes effect without a code change.
   const bot = new Bot(token);
 
   bot.command("start", async (ctx) => {
@@ -323,8 +324,8 @@ function parseGithubHandle(input: string): string | null {
  *   • the chat is private (1:1 DM with the bot)
  *   • the message text contains @<botUsername>
  *   • the message is a direct reply to one of the bot's previous messages
- *   • the message contains an @quor[u/o]m_bot lookalike (typo tolerance —
- *     @BotFather registered "quorom_bot" but users naturally type "quorum_bot")
+ *   • the message contains an @quor[u/o]m_bot lookalike (legacy tolerance:
+ *     an older deploy used @quorom_bot; canonical is @quorum_bot)
  *   • the message has any text_mention entity pointing at the bot
  * Anything else is overheard chatter — observed but not acted upon.
  */
@@ -343,9 +344,8 @@ function isAddressed(ctx: Context): boolean {
   const replyTo = ctx.message?.reply_to_message?.from;
   if (me?.id && replyTo?.id === me.id) return true;
 
-  // Typo-tolerant match — the BotFather name is "quorom_bot" (one missing u)
-  // but the product name is "Quorum" so users will keep typing both. Accept
-  // either spelling.
+  // Tolerant match — the canonical handle is @quorum_bot, but an older deploy
+  // used @quorom_bot. Accept either spelling so legacy mentions keep working.
   if (/@quor[uo]m_bot\b/i.test(text)) return true;
 
   // text_mention entities (used for users without @-username, e.g. by ID)

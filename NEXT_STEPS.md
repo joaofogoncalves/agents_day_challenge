@@ -29,7 +29,7 @@ Polling is the cheap fix. Probably what Rui will ship if he has time.
 PLAN.md has it as H+7 work — we never wired it. The idea: every 24h, the agent picks a parked idea and posts "still parked? kill, revive, or leave?" into the chat. Cute feature for "agent that lives in your team's chat for real" but not in the demo arc. Wire post-demo if we keep iterating.
 
 ### Bot token rotation
-The current `TELEGRAM_BOT_TOKEN` was pasted into a Claude conversation and is in transcripts. For a real product launch: `@BotFather → /revoke → Quorom_bot → new token → wrangler secret put TELEGRAM_BOT_TOKEN → re-run setWebhook`. The webhook secret stays.
+The current `TELEGRAM_BOT_TOKEN` was pasted into a Claude conversation and is in transcripts. For a real product launch: `@BotFather → /revoke → @quorum_bot → new token → wrangler secret put TELEGRAM_BOT_TOKEN → re-run setWebhook`. The webhook secret stays.
 
 ### `api/` Worker cleanup
 Lives at `api/` but is dead code — `quorum/` owns `/api/*` after the merge. Safe to `git rm -r api/` once everyone's confirmed they're not running it locally.
@@ -39,8 +39,8 @@ Lives at `api/` but is dead code — `quorum/` owns `/api/*` after the merge. Sa
 ### `/me` and `/gh` — partial
 User flagged these had issues; we deprioritized to stay on the agentic refactor. The router's `record_member` path uses the same `extractSkills(...)` helper that `/me` does, so any prompt-quality issue in skill extraction shows up in both. Twody7 owns the prompt iteration (see `team/twody7.md`).
 
-### Bot username typo locked in
-`@Quorom_bot` (one missing `u`) — registered with @BotFather early. Cannot rename mid-day without breaking the webhook. The codebase says "Quorum" everywhere except where it interacts with Telegram. Don't try to "fix" it — let the typo be character.
+### Bot username canonicalization
+The bot's canonical handle is `@quorum_bot`. An earlier deploy used `@quorom_bot` (typo); `isAddressed` in `quorum/src/telegram.ts` keeps both spellings working via `/@quor[uo]m_bot\b/i`. Once we're confident no historical `@quorom_bot` mentions are in active use, the regex can be tightened to the canonical name only.
 
 ### Schema drift between SCHEMA and ALTER
 `name`, `brief`, `long`, `hours` columns on `ideas` are added via `ADDITIVE_MIGRATIONS` (try/catch on duplicate-column). The `CREATE TABLE` in `SCHEMA` still doesn't list them. Works because new DOs run both arrays, but a fresh reader of `schema.ts` might be confused. Reconcile later.

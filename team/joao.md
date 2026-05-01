@@ -33,34 +33,7 @@ Way ahead on backend. Significantly ahead of the original H-by-H plan — H+1 th
   - Per-chat board URL: `/start` posts `…/?chat=<chatId>`, web/ reads it (`d4a1705`)
   - Always-200 webhook (`b856434`) — prevents Telegram queue lockup on internal errors
 
-## ⚠️ Blocking bug — fix this first
-
-`BotError: TypeError in middleware: raw.trim is not a function` on every command in groups. From `wrangler tail`:
-
-```
-Error in QuorumAgent:-5224131572 fetch:
-BotError: TypeError in middleware: raw.trim is not a function
-```
-
-`raw` doesn't appear in our source as a `.trim()` target. Strongest hypothesis: grammY's command parser tripping on the `/start@Quorom_bot` mention because `botInfo.username` is hardcoded to `"quorum_bot"` in `src/telegram.ts` while @BotFather actually registered `Quorom_bot`.
-
-**Fix to try first:** in `src/telegram.ts`, change `username: "quorum_bot"` → `username: "Quorom_bot"`. If that's not it, delete the entire `botInfo` block (grammy will fetch the right info via `getMe()` on first call, costs one extra round-trip per cold start).
-
-After fixing, smoke-test in the **Quorom Demo** group (chat `-5224131572`):
-```
-/start          → help + per-chat board URL
-/whoami         → chat=-5224131572 user=<your-id>
-/idea something
-/me 15 yrs backend, Go, distributed systems, no frontend
-/team
-/ideas
-/promote 1
-/kill 1
-/constraint we just lost our backend lead
-/why 1
-```
-
-## What's next (post-fix)
+## What's next
 
 | When | Task |
 |---|---|
@@ -71,7 +44,7 @@ After fixing, smoke-test in the **Quorom Demo** group (chat `-5224131572`):
 | H+8 | Pitch dry-run with Rui & Twody7. |
 | H+9 | Submit. Buffer for breakage. |
 
-Bot token rotation is also still pending (the original token leaked in a chat transcript): `@BotFather → /revoke → Quorom_bot → new token → wrangler secret put TELEGRAM_BOT_TOKEN → re-run setWebhook`. Webhook secret stays as-is.
+Bot token rotation is also still pending (the original token leaked in a chat transcript): `@BotFather → /revoke → @quorum_bot → new token → wrangler secret put TELEGRAM_BOT_TOKEN → re-run setWebhook`. Webhook secret stays as-is.
 
 ## Interfaces I produce
 

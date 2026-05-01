@@ -33,7 +33,7 @@ The original plan had your work split between `src/format.ts` (Telegram message 
 
 In rough priority order:
 
-1. **Live in the Quorom Demo group.** The bot is in chat `-5224131572`. Open `https://quorum.joao-f-o-goncalves.workers.dev/?chat=-5224131572` and confirm it loads. (Will be empty until the runtime bug João is fixing lets `/idea` actually persist there.)
+1. **Live in the Quorum Demo group.** The bot is in chat `-5224131572`. Open `https://quorum.joao-f-o-goncalves.workers.dev/?chat=-5224131572` and confirm it loads. (Will be empty until the runtime bug João is fixing lets `/idea` actually persist there.)
 2. **Stale board after `/constraint`.** Currently no auto-refresh. Two cheap options for the demo:
    - Refresh button + 5-second polling fallback. Visible "live" indicator.
    - Or just refresh manually during the pitch — that's also fine, just rehearse it.
